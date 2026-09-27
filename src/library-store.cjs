@@ -1,6 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const { randomInt } = require('node:crypto');
 const path = require('node:path');
+const {galleryFromUrl}=require('./sites.cjs');
 
 const SORTS = { title: 'title_key', artist: 'author_key', pages: 'pages', downloaded: 'downloaded', finished: 'finished', uploaded: 'uploaded', readDate: 'last_read', reads: 'reads', size: 'size', progress: 'progress', average: 'average_size', random: 'shuffle', custom: 'custom_order' };
 const SUMMARY = 'b.id,b.title,b.author,b.site,b.source_id,b.pages,b.size,b.favourite,b.rating,b.completed,b.reads,b.progress,b.missing,b.cover,b.last_page,b.downloaded,b.finished,b.tags';
@@ -90,7 +91,9 @@ class LibraryStore {
   finishScan(root,seen) { this.sql('UPDATE books SET missing=1 WHERE root=? AND seen<>?').run(root,seen); }
   where(input, nested = false) {
     const f = criteria(input), terms = [], args = [], add = (sql,...values) => { terms.push(sql); args.push(...values); };
-    if (f.query) {
+    const gallery=galleryFromUrl(f.query);
+    if(gallery)add('b.site=? AND b.source_id=?',gallery.site,String(gallery.id));
+    else if (f.query) {
       const q=norm(f.query), parts=q.split(',').map(t=>t.trim()).filter(Boolean);
       const contains = (column, text) => {
         if ([...text].length >= 3) { args.push(`${column} : "${text.replaceAll('"','""')}"`); return 'b.id IN (SELECT rowid FROM search WHERE search MATCH ?)'; }
@@ -123,7 +126,8 @@ class LibraryStore {
     for (const kind of f.excludedTypes) add('NOT EXISTS(SELECT 1 FROM book_attrs ba JOIN attrs a ON a.id=ba.attr WHERE ba.book=b.id AND a.kind=?)',kind);
     return { sql:terms.join(' AND ') || '1',args,f };
   }
-  query(input) {
+  adjacent({id,filters,direction=1}) { return this.query(filters,{id,direction}); }
+  query(input,adjacent) {
     const {sql,args,f}=this.where(input), direction=f.desc ? 'DESC' : 'ASC';
     const attr=f.attrs.find(a=>!a.excluded&&['artist','series'].includes(a.kind)),orderArgs=[];
     let order=`b.${SORTS[f.sort]}`;
@@ -133,9 +137,13 @@ class LibraryStore {
       else order='b.id';
     }
     const tie=f.sort === 'reads' ? `,b.last_read ${direction},b.downloaded DESC` : '';
+    if(adjacent) {
+      if(!Number.isInteger(adjacent.id)||![1,-1].includes(adjacent.direction))throw new Error('Invalid navigation.');
+      return this.sql(`WITH ordered AS (SELECT b.id,row_number() OVER (ORDER BY ${order} ${direction}${tie},b.id ASC) position FROM books b WHERE ${sql}) SELECT id FROM ordered WHERE position=(SELECT position FROM ordered WHERE id=?)+?`).get(...orderArgs,...args,adjacent.id,adjacent.direction)?.id || null;
+    }
     const stats=this.sql(`SELECT count(*) total,coalesce(sum(b.size),0) bytes FROM books b WHERE ${sql}`).get(...args);
     const books=this.sql(`SELECT ${SUMMARY} FROM books b WHERE ${sql} ORDER BY ${order} ${direction}${tie},b.id ASC LIMIT ? OFFSET ?`).all(...args,...orderArgs,f.limit,f.offset);
-    return {...stats,books:books.map(b=>({...b,tags:JSON.parse(b.tags).slice(0,8)})),offset:f.offset,limit:f.limit};
+    return {...stats,books:books.map(b=>({...b,language:JSON.parse(b.tags).find(t=>t.startsWith('language:'))?.slice(9)||'',tags:JSON.parse(b.tags).slice(0,8)})),offset:f.offset,limit:f.limit};
   }
   get(id) {
     if (!Number.isInteger(id)) throw new Error('Invalid book.');
@@ -143,21 +151,23 @@ class LibraryStore {
     if (!book) throw new Error('Book not found.');
     return {...book,files:JSON.parse(book.files),tags:JSON.parse(book.tags),groups:this.sql('SELECT grp FROM book_groups WHERE book=?').all(id).map(g=>g.grp),pageState:this.sql('SELECT page,read,favourite FROM page_state WHERE book=?').all(id)};
   }
-  suggestions({kind='tag',query=''}={}) {
+  suggestions({kind='tag',query='',sort='count'}={}) {
     if (kind === 'date') return this.sql("SELECT date(downloaded/1000,'unixepoch','localtime') name,count(*) count FROM books GROUP BY name ORDER BY name DESC").all();
-    if (kind === 'source') return this.sql('SELECT site name,count(*) count FROM books GROUP BY site ORDER BY count DESC').all();
+    if (kind === 'source') return this.sql('SELECT site name,count(*) count FROM books GROUP BY site ORDER BY '+(sort==='title'?'site':'count DESC,site')).all();
     if (!TYPES.includes(kind)) throw new Error('Unknown attribute.');
-    return this.sql('SELECT a.name,count(*) count FROM attrs a JOIN book_attrs ba ON ba.attr=a.id WHERE a.kind=? AND instr(a.key,?)>0 GROUP BY a.id ORDER BY count DESC,a.key LIMIT 100').all(kind,norm(query).slice(0,200));
+    return this.sql('SELECT a.name,count(*) count FROM attrs a JOIN book_attrs ba ON ba.attr=a.id WHERE a.kind=? AND instr(a.key,?)>0 GROUP BY a.id ORDER BY '+(sort==='title'?'a.key':'count DESC,a.key')+' LIMIT 100').all(kind,norm(query).slice(0,200));
   }
   facets({kind,query='',offset=0,limit=60,sort='title',desc=false}={}) {
     const args=[],direction=desc?'DESC':'ASC';let sql;
-    if(['artist','series'].includes(kind)) {sql='SELECT a.name,a.key,count(*) count,0 id,max(b.downloaded) latest,0 position FROM attrs a JOIN book_attrs ba ON ba.attr=a.id JOIN books b ON b.id=ba.book WHERE a.kind=? AND instr(a.key,?)>0 GROUP BY a.id';args.push(kind,norm(query));}
-    else if(kind==='date') {sql="SELECT date(downloaded/1000,'unixepoch','localtime') name, date(downloaded/1000,'unixepoch','localtime') key,count(*) count,0 id,max(downloaded) latest,0 position FROM books GROUP BY name";}
-    else if(kind==='folders') {sql='SELECT r.path name,r.path key,count(b.id) count,r.id,max(b.downloaded) latest,0 position FROM roots r LEFT JOIN books b ON b.root=r.id GROUP BY r.id';}
-    else if(['custom','dynamic'].includes(kind)) {sql=`SELECT g.name,lower(g.name) key,count(bg.book) count,g.id,max(b.downloaded) latest,g.position FROM groups g LEFT JOIN book_groups bg ON bg.grp=g.id LEFT JOIN books b ON b.id=bg.book WHERE g.filters IS ${kind==='custom'?'':'NOT '}NULL AND instr(lower(g.name),?)>0 GROUP BY g.id`;args.push(norm(query));}
+    if(['artist','series'].includes(kind)) {sql='SELECT a.name,a.key,count(*) count,sum(b.size) size,0 id,max(b.downloaded) latest,0 position FROM attrs a JOIN book_attrs ba ON ba.attr=a.id JOIN books b ON b.id=ba.book WHERE a.kind=? AND instr(a.key,?)>0 GROUP BY a.id';args.push(kind,norm(query));}
+    else if(kind==='date') {sql="SELECT date(downloaded/1000,'unixepoch','localtime') name, date(downloaded/1000,'unixepoch','localtime') key,count(*) count,sum(size) size,0 id,max(downloaded) latest,0 position FROM books GROUP BY name";}
+    else if(kind==='folders') {sql='SELECT r.path name,r.path key,count(b.id) count,coalesce(sum(b.size),0) size,r.id,max(b.downloaded) latest,0 position FROM roots r LEFT JOIN books b ON b.root=r.id GROUP BY r.id';}
+    else if(['custom','dynamic'].includes(kind)) {sql=`SELECT g.name,lower(g.name) key,count(bg.book) count,coalesce(sum(b.size),0) size,g.id,max(b.downloaded) latest,g.position FROM groups g LEFT JOIN book_groups bg ON bg.grp=g.id LEFT JOIN books b ON b.id=bg.book WHERE g.filters IS ${kind==='custom'?'':'NOT '}NULL AND instr(lower(g.name),?)>0 GROUP BY g.id`;args.push(norm(query));}
     else throw new Error('Unknown grouping.');
     const order={title:'key',pages:'count',downloaded:'latest',custom:'position'}[sort]||'key';
-    return {total:this.sql(`SELECT count(*) count FROM (${sql})`).get(...args).count,entries:this.sql(`SELECT * FROM (${sql}) ORDER BY ${order} ${direction},id LIMIT ? OFFSET ?`).all(...args,integer(limit,1,200,60),integer(offset,0,10000000,0))};
+    const entries=this.sql(`SELECT * FROM (${sql}) ORDER BY ${order} ${direction},id LIMIT ? OFFSET ?`).all(...args,integer(limit,1,200,60),integer(offset,0,10000000,0));
+    if(kind==='dynamic')for(const entry of entries){const w=this.where({group:entry.id});Object.assign(entry,this.sql(`SELECT count(*) count,coalesce(sum(size),0) size FROM books b WHERE ${w.sql}`).get(...w.args));}
+    return {total:this.sql(`SELECT count(*) count FROM (${sql})`).get(...args).count,entries};
   }
   update({ids,patch}) {
     if (!Array.isArray(ids) || !ids.length || ids.length>1000 || ids.some(id=>!Number.isInteger(id))) throw new Error('Select between 1 and 1000 books.');
@@ -179,7 +189,7 @@ class LibraryStore {
       if (values.edited) { const b=this.get(id), attrs=attributes(b.tags), author=attrs.filter(a=>['artist','circle'].includes(a.kind)).map(a=>a.name).join(', '); this.sql('UPDATE books SET author=?,author_key=? WHERE id=?').run(author,norm(author),id); this.reindex(id,b.title,attrs); }
     }});
   }
-  read({id,page,open=false,favourite}) {
+  read({id,page,open=false,favourite,complete=false}) {
     const b=this.get(id);
     if (!Number.isInteger(page)||page<0||page>=b.files.length) throw new Error('Invalid page.');
     this.transaction(()=>{
@@ -189,6 +199,7 @@ class LibraryStore {
         this.sql('UPDATE page_state SET read=1 WHERE book=? AND page=?').run(id,page);
         this.sql('UPDATE books SET reads=reads+?,last_read=?,last_page=?,progress=(SELECT count(*) FROM page_state WHERE book=? AND read=1)*1.0/? WHERE id=?').run(open?1:0,Date.now(),page,id,b.files.length,id);
       }
+      if(complete===true)this.sql('UPDATE books SET completed=1 WHERE id=?').run(id);
     });
   }
   groups() { return this.sql('SELECT g.*,count(bg.book) books FROM groups g LEFT JOIN book_groups bg ON bg.grp=g.id GROUP BY g.id ORDER BY position,g.name').all().map(g=>({...g,filters:g.filters?JSON.parse(g.filters):null})); }

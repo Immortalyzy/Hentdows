@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('hentdows', {
   openFolder: id => ipcRenderer.invoke('app:open-folder', id),
   panel: panel => ipcRenderer.invoke('app:panel', panel),
   saveSettings: patch => ipcRenderer.invoke('app:save-settings', patch),
+  savePreferences: (section, patch) => ipcRenderer.invoke('app:save-preferences', section, patch),
+  readerActive: active => ipcRenderer.invoke('app:reader-active', active),
   library: (action, input) => ipcRenderer.invoke('app:library', action, input),
   onLibraryBack: callback => { const listener = () => callback(); ipcRenderer.on('library:back', listener); return () => ipcRenderer.removeListener('library:back', listener); },
   subscribe: callback => { const listener = (_, state) => callback(state); ipcRenderer.on('app:changed', listener); return () => ipcRenderer.removeListener('app:changed', listener); }

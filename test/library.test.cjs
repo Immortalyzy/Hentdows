@@ -12,7 +12,7 @@ test('library universal search matches literal title substrings, exact IDs and c
   store.index(book(root,420,{title:'夏の物語',tags:['artist:Bob','language:english']}));
   store.index(book(root,3,{title:'Other',tags:['artist:Alice','language:japanese']}));
   const ids=query=>store.query({query,sort:'title'}).books.map(b=>b.source_id);
-  assert.deepEqual(ids('WINTER'),['42']);assert.deepEqual(ids('100%'),['42']);assert.deepEqual(ids('42'),['42']);
+  assert.deepEqual(ids('WINTER'),['42']);assert.deepEqual(ids('100%'),['42']);assert.deepEqual(ids('42'),['42']);assert.deepEqual(ids('https://e-hentai.org/g/42/key/?p=1'),['42']);
   assert.deepEqual(ids('alice,english'),['42']);assert.deepEqual(ids('alice,missing'),[]);assert.deepEqual(ids('夏の'),['420']);
   assert.deepEqual(ids('" OR 1=1 --'),[]);assert.deepEqual(ids('glasses'),['42']);
 });
@@ -67,4 +67,18 @@ test('artist and series grouping remain paged beyond one hundred groups',t=>{
 test('library metadata, searches and custom order survive reopening the database',()=>{
   const directory=fs.mkdtempSync(path.resolve('artifacts','library-restart-')),file=path.join(directory,'library.sqlite');let store=new LibraryStore(file);const root=store.addRoot(directory),id=store.index(book(root,7));store.update({ids:[id],patch:{title:'Saved title',favourite:true,rating:5}});const group=store.group({action:'save',name:'Saved shelf'});store.group({action:'assign',id:group,ids:[id]});store.read({id,page:0,open:true});store.close();
   store=new LibraryStore(file);try{assert.equal(store.get(id).reads,1);assert.equal(store.get(id).rating,5);assert.equal(store.query({group,query:'Saved title',favourite:1,sort:'custom'}).total,1);}finally{store.close();}
+});
+
+test('reader adjacency follows every sort and filtered custom order across page boundaries',t=>{
+  const {store,root}=fixture(t),ids=[];
+  for(let i=0;i<80;i++)ids.push(store.index(book(root,i,{tags:['artist:Shared',i%2?'language:english':'language:japanese']})));
+  const filters={attrs:[{kind:'artist',name:'shared'}]};store.group({action:'move',ids:[ids[1]],direction:-1,filters});
+  for(const sort of Object.keys(SORTS))for(const desc of [true,false]){
+    const f={...filters,sort,desc,limit:100},all=store.query(f).books;
+    for(const at of [0,19,59,78])assert.equal(store.adjacent({id:all[at].id,filters:f,direction:1}),all[at+1].id,sort);
+    assert.equal(store.adjacent({id:all.at(-1).id,filters:f,direction:1}),null);
+    assert.equal(store.adjacent({id:all[1].id,filters:f,direction:-1}),all[0].id);
+  }
+  assert.equal(store.facets({kind:'artist'}).entries[0].size,16000);
+  assert.deepEqual(store.suggestions({kind:'language',sort:'title'}).map(a=>a.name),['english','japanese']);
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, shell, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, shell, Menu, protocol, net, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -9,6 +9,7 @@ const { createSources } = require('./sources.cjs');
 const { createSessionFetch } = require('./session-fetch.cjs');
 const { SETTINGS, validateDownloads } = require('./settings.cjs');
 const { createNetworkProbe } = require('./network.cjs');
+const { LIBRARY_SETTINGS, VIEWER_SETTINGS, validatePreferences } = require('./reading-settings.cjs');
 const { Library } = require('./library.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'hentdows', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -18,6 +19,10 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   const settingsFile = path.join(dataPath, 'settings.json');
   const settings = readJson(settingsFile, { downloadRoot: path.join(app.getPath('downloads'), 'Hentdows') });
   settings.downloads = validateDownloads(settings.downloads || {});
+  settings.library = validatePreferences('library', settings.library || {});
+  settings.viewer = validatePreferences('viewer', settings.viewer || {});
+  let awakeId;
+  const stopAwake = () => { if (awakeId !== undefined) powerSaveBlocker.stop(awakeId); awakeId = undefined; };
   const getSettings = () => settings.downloads;
   const library = new Library(path.join(dataPath, 'library.sqlite'));
   let libraryRevision = 0, libraryScan = { running: false, checked: 0, added: 0, errors: [] };
@@ -31,13 +36,14 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
         try { const file = await library.call('asset', { id: Number(asset[1]), page: asset[2] === 'cover' ? 'cover' : Number(asset[2]) }); return net.fetch(pathToFileURL(file).href); }
         catch { return new Response('Image unavailable', { status: 404 }); }
       }
-      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css'].includes(name)) return new Response('Not found', { status: 404 });
+      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js'].includes(name)) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(path.join(__dirname, 'ui', name)).href);
     });
   }
   const win = new BrowserWindow({ width: 520, height: 940, minWidth: 380, minHeight: 560, show,
     title: 'Hentdows', backgroundColor: '#212121', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen } });
+  win.webContents.on('render-process-gone', stopAwake);
   Menu.setApplicationMenu(null);
   const browserSession = session.fromPartition('persist:hentdows-sources');
   browserSession.setPermissionRequestHandler((_, __, callback) => callback(false));
@@ -84,6 +90,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   function state() {
     const url = wc.isDestroyed() ? '' : wc.getURL();
     return { sites: SITES, panel, url, gallery: galleryFromUrl(url), downloadRoot: settings.downloadRoot,
+      librarySettings: settings.library, viewerSettings: settings.viewer, librarySchema: LIBRARY_SETTINGS, viewerSchema: VIEWER_SETTINGS,
       downloadSettings: settings.downloads, settingsSchema: SETTINGS, queueRunning: queue.running,
       jobs: queue.snapshot(), error, notice, loading: !wc.isDestroyed() && wc.isLoading(),
       libraryRevision, libraryScan,
@@ -143,6 +150,16 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (value === 'settings' && panel !== 'settings') settingsReturnPanel = panel;
       panel = value === 'browser' && !wc.getURL() ? 'sources' : value; layout(); publish();
     },
+    'app:save-preferences': (_, section, patch) => {
+      const updated = validatePreferences(section, patch, settings[section]);
+      writeJson(settingsFile, { ...settings, [section]: updated }); settings[section] = updated;
+      if (section === 'viewer' && !updated.keepAwake) stopAwake();
+      notice = 'Preferences saved.'; error = ''; publish(); return updated;
+    },
+    'app:reader-active': (_, active) => {
+      if (typeof active !== 'boolean') throw new Error('Invalid reader state.');
+      stopAwake(); if (active && settings.viewer.keepAwake) awakeId = powerSaveBlocker.start('prevent-display-sleep');
+    },
     'app:save-settings': async (_, patch) => {
       const updated = validateDownloads(patch, settings.downloads);
       writeJson(settingsFile, { ...settings, downloads: updated });
@@ -167,7 +184,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (!result.canceled) { settings.downloadRoot = result.filePaths[0]; writeJson(settingsFile, settings); await library.call('addRoot', settings.downloadRoot); publish(); }
     },
     'app:library': async (_, action, input) => {
-      if (['query','get','suggestions','groups','roots','facets'].includes(action)) return library.call(action, input);
+      if (['query','get','suggestions','groups','roots','facets','adjacent'].includes(action)) return library.call(action, input);
       if (['update','group','read','shuffle','restoreDetached'].includes(action)) { const result = await library.call(action, input); libraryChanged(); return result; }
       if (action === 'scan' || action === 'cancel') return library.call(action);
       if (action === 'import') {
@@ -184,7 +201,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
         const books = await Promise.all(input.map(id => library.call('get', id)));
         const message = action === 'delete' ? `Move ${books.length} book folder(s) to the Recycle Bin?` : `Remove ${books.length} book(s) from the library? Files will be kept.`;
         const result = await dialog.showMessageBox(win, { type: 'warning', title: 'Library', message, buttons: ['Cancel', action === 'delete' ? 'Move to Recycle Bin' : 'Remove from library'], defaultId: 0, cancelId: 0 });
-        if (result.response !== 1) return;
+        if (result.response !== 1) return false;
         for (const book of books) {
           if (action === 'delete') {
             if (queue.jobs.some(j => path.resolve(j.directory) === book.path && ['queued','waiting','resolving','downloading'].includes(j.status))) throw new Error('Pause this book’s download before deleting it.');
@@ -195,7 +212,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
           }
           await library.call('detach', [book.id]);
         }
-        libraryChanged(); return;
+        libraryChanged(); return true;
       }
       if (action === 'backup') {
         const result = await dialog.showSaveDialog(win, { title: 'Back up library metadata', defaultPath: 'Hentdows-library.sqlite', filters: [{ name: 'SQLite library backup', extensions: ['sqlite'] }] });
@@ -233,7 +250,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   }
   win.on('close', () => {
     if (quitting) return; quitting = true;
-    clearInterval(policyTimer); queue.close(); void library.close();
+    stopAwake(); clearInterval(policyTimer); queue.close(); void library.close();
     for (const name of Object.keys(handlers)) ipcMain.removeHandler(name);
     for (const [name, handler] of remoteHandlers) ipcMain.removeListener(name, handler);
     if (!wc.isDestroyed()) wc.close();

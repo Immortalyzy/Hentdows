@@ -80,7 +80,8 @@ another Hentdows download folder, or **Refresh library** to find filesystem chan
 The index reads manifests rather than image bodies. Missing drives/books retain
 their metadata and reading state. Incomplete downloads stay in the queue.
 
-- List and two-, three- or four-column grids, with 60 books per page and lazy covers.
+- List, adaptive-width grid, and two-, three- or four-column grids. Settings offer
+  endless scrolling (bounded rendered rows) or 20–100 books per page with lazy covers.
 - Case-insensitive title/attribute substring search and exact gallery IDs. Comma-
   separated terms match attributes with AND. **Filters** includes exact metadata
   inclusion/exclusion, AND/OR, absent attribute types, favourites, completion,
@@ -89,11 +90,11 @@ their metadata and reading state. Incomplete downloads stay in the queue.
   stable random order with Shuffle, and custom order in eligible groups.
 - Group by artist, series, download date or folder; create custom groups or save
   current search filters as a dynamic group. Groups and books are paged.
-- Single-click a book for details and reading. Double-click to select, then edit
+- Single-click a book to read. Use its small **⋯** button for details and actions. Double-click to select, then edit
   metadata, rate, mark completed, change groups, reorder, remove from the index,
   or move the book folder to the Recycle Bin. Removal/deletion asks for confirmation.
-- A basic paged reader records viewed pages, reading sessions and favourite pages.
-  Arrow keys turn pages; Esc closes the reader, selection or group.
+- A full-window reader records viewed pages, reading sessions and favourite pages.
+  Mouse wheel and arrow keys turn pages; Esc closes the reader, selection or group.
 - **Back up metadata / Restore metadata backup** preserves the SQLite index,
   edits, groups and reading history. Images remain in their download folders.
   Back up those folders separately. Restore uses the paths recorded in the backup.
@@ -105,9 +106,30 @@ the library retains the books and checks for duplicates when enqueueing.
 
 This milestone focuses on Hentdows downloads. Hentoid database/backup import,
 CBZ/PDF libraries, archive conversion, book merge/split, LANraragi integration,
-and the full Hentoid reader feature set are not implemented. Browser bookmarks,
+and advanced book-file editing are not implemented. Browser bookmarks,
 source-specific filters, download ranges and comprehensive ad blocking also remain.
 The download manifest and metadata backup use Hentdows formats.
+
+## Library and viewer settings
+
+Use the gear button and select **Library** or **Viewer**. Library preferences control
+paging/endless scrolling, grid fields and card width, group counts/sizes, search
+delays, metadata order/counts, and the Go to Top button.
+
+Viewer preferences cover LTR/RTL/vertical reading, wheel/drag/border controls,
+keyboard shortcuts, double-click/hold zoom, screen wake, animations, page numbers,
+auto-rotation, color overlay, solid-border cropping, fit/fill/stretch, two-page
+spreads, vertical separators, gallery columns, resume/gallery startup, continuous
+reading, read/completion thresholds, deletion direction, and slideshow speed/loop.
+The narrow bottom bar provides page/book navigation, gallery, slideshow, and more
+actions. In vertical mode the wheel scrolls naturally; in paged mode one wheel
+step turns a page. Zoomed pages scroll/pan before returning to normal page turns.
+
+Windows uses the agreed configurable keyboard equivalents for Android volume
+buttons, the full window area, and Chromium's native renderer/color depth.
+Hentdows downloads contain one chapter per book. Chapter navigation therefore has
+no adjacent chapters; chapter slideshow looping repeats that book. See the
+[preference mapping](docs/vibe_steps/03_library/01_reader_settings.md).
 
 ## Verify and package
 
@@ -116,6 +138,7 @@ npm test
 npm run smoke
 npm run smoke:network
 npm run smoke:library
+npm run smoke:reader
 npm run benchmark:library
 npm run package
 ```
@@ -136,8 +159,8 @@ does not scan or validate an actual 200–400 GiB image collection.
 Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
-saved profile. The library milestone build is also available locally under
-`dist/0.3.0/Hentdows-win32-x64/` so it can be built while the older copy is running.
+saved profile. The library/viewer settings build is also available locally under
+`dist/0.4.0/Hentdows-win32-x64/` so it can be built while the older copy is running.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)
