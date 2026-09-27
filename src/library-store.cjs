@@ -58,7 +58,12 @@ class LibraryStore {
   sql(sql) { if (!this.statements.has(sql)) { if (this.statements.size > 250) this.statements.clear(); this.statements.set(sql, this.db.prepare(sql)); } return this.statements.get(sql); }
   transaction(fn) { if(this.db.isTransaction)return fn();this.db.exec('BEGIN'); try { const result = fn(); this.db.exec('COMMIT'); return result; } catch (e) { this.db.exec('ROLLBACK'); throw e; } }
   roots() { return this.sql('SELECT * FROM roots ORDER BY id').all(); }
-  findSource({site,sourceId}) { return this.sql('SELECT id,path FROM books WHERE site=? AND source_id=? AND missing=0 LIMIT 1').get(site,String(sourceId)); }
+  findSource({site,sourceId}) { return ['ehentai','exhentai'].includes(site)?this.sql("SELECT id,path FROM books WHERE site IN ('ehentai','exhentai') AND source_id=? AND missing=0 LIMIT 1").get(String(sourceId)):this.sql('SELECT id,path FROM books WHERE site=? AND source_id=? AND missing=0 LIMIT 1').get(site,String(sourceId)); }
+  duplicateCandidates({word,offset=0}) {
+    word=norm(word).slice(0,200);if(word.length<2)return [];
+    const term=word.length>=3?'b.id IN (SELECT rowid FROM search WHERE search MATCH ?)':'instr(b.title_key,?)>0';
+    return this.sql(`SELECT b.id,b.title,b.site,b.source_id,b.pages,b.size,b.tags,b.path FROM books b WHERE missing=0 AND ${term} ORDER BY b.id LIMIT 100 OFFSET ?`).all(word.length>=3?'title : "'+word.replaceAll('"','""')+'"':word,integer(offset,0,10000000,0)).map(b=>({...b,tags:JSON.parse(b.tags)}));
+  }
   indexed(paths) { return paths.filter(p=>Boolean(this.byPath(p))); }
   addRoot(directory) { this.sql('INSERT OR IGNORE INTO roots(path) VALUES(?)').run(directory); return this.sql('SELECT * FROM roots WHERE path=?').get(directory); }
   byPath(directory) { return this.sql('SELECT id,signature FROM books WHERE path=?').get(directory); }

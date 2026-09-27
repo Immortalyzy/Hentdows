@@ -143,6 +143,7 @@
   $('library-prev').onclick=()=>{filters.offset=Math.max(0,filters.offset-filters.limit);run(load);};$('library-next').onclick=()=>{filters.offset+=filters.limit;run(load);};
   $('library-deselect').onclick=()=>{selected.clear();selection();};$('library-select-page').onclick=()=>{for(const book of result?.books||[])selected.add(book.id);selection();};
   $('library-action').onchange=()=>{const action=$('library-action').value;$('library-action').value='';run(()=>selectionAction(action));};
+  api.onLibraryOpen(id=>run(()=>startReader(id)));
   api.onLibraryBack(()=>{if(window.readerUI?.active){if(!window.readerUI.back())closeDialog();}else if(dialog.open)closeDialog();else if(selected.size){selected.clear();selection();}else if(groupLabel){$('library-up').click();}else if(grouping!=='flat')run(clear);else run(()=>api.panel('sources'));});
   window.libraryUI={render:state=>{
     const sig=JSON.stringify(state.librarySettings),changed=settingsSignature!==sig;

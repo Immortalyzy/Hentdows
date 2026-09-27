@@ -1,6 +1,14 @@
 // Labels, defaults and choices follow Hentoid's downloader PreferenceScreen.
 const choice = (value, label) => ({ value, label });
 const SETTINGS = [
+  ...[
+    {key:'duplicateAsk',title:'Ask before downloading duplicates',default:true},
+    {key:'duplicateTitle',title:'Compare titles',default:true},
+    {key:'duplicateArtist',title:'Compare artists',default:true},
+    {key:'duplicateLanguage',title:'Require the same language',default:false},
+    {key:'duplicateCover',title:'Compare covers',default:true}
+  ].map(f=>({...f,group:'Duplicate detection',type:'boolean'})),
+  {key:'duplicateSensitivity',group:'Duplicate detection',title:'Sensitivity',type:'select',default:2,choices:[choice(0,'High (more matches)'),choice(1,'Medium'),choice(2,'Low (strong matches)')]},
   { key: 'autoStart', group: '', title: 'Auto-start download queue', type: 'boolean', default: true, summary: 'Start the queue when a gallery is added.' },
   { key: 'scheduleEnabled', group: '', title: 'Schedule downloads', type: 'boolean', default: false, summary: 'Download only during the daily time window while Hentdows is open.' },
   { key: 'scheduleStart', group: '', title: 'Start time', type: 'time', default: '00:00', depends: 'scheduleEnabled' },

@@ -154,3 +154,26 @@ test('restart pauses unfinished work and refuses corrupt queue data', t => {
   assert.deepEqual(restored.jobs.map(j => j.status), ['paused', 'paused', 'complete']);
   fs.writeFileSync(queue.file, 'corrupted'); assert.throws(() => new DownloadQueue({ file: queue.file }), /preserved/);
 });
+
+test('queue reorder, freeze, resume and completed archival preserve processing rules',async t=>{
+  const order=[];const {queue,root}=setup(t,{getSettings:()=>({...DEFAULT_DOWNLOADS,autoStart:false}),resolveGallery:async g=>{order.push(g.sourceId);return {title:g.sourceId,pages:[0]};}});
+  const ids=[1,2,3].map(i=>queue.enqueue('https://e-hentai.org/g/'+i+'/key/',root));
+  assert.equal(queue.enqueue('https://exhentai.org/g/1/key/',root),ids[0]);
+  await queue.bulk('order',[ids[2],ids[0],ids[1]]);assert.deepEqual(queue.jobs.map(j=>j.id),[ids[2],ids[0],ids[1]]);
+  await queue.bulk('freeze',[ids[2]]);queue.startAll();await until(()=>queue.jobs.filter(j=>j.status==='complete').length===2);
+  assert.deepEqual(order,['1','2']);assert.equal(queue.jobs[0].status,'frozen');
+  queue.archiveCompleted(queue.jobs.filter(j=>j.status==='complete').map(j=>j.directory));assert.equal(queue.jobs.length,1);
+  await queue.bulk('unfreeze',[ids[2]]);queue.startAll();await until(()=>queue.jobs[0].status==='complete');assert.deepEqual(order,['1','2','3']);
+  queue.close();
+});
+test('removing active downloads settles writers and retains completed files',async t=>{
+  let count=0;const {queue,root}=setup(t,{getSettings:()=>({...DEFAULT_DOWNLOADS,parallel:2}),fetchImage:async(_,__,signal)=>{if(++count===2)await delay(10000,null,{signal});return new Response('image',{headers:{'content-type':'image/png'}});}});
+  const id=queue.enqueue('https://e-hentai.org/g/42/key/',root);await until(()=>queue.jobs[0].completed===1);const directory=queue.jobs[0].directory;
+  await queue.bulk('remove',[id]);assert.equal(queue.jobs.length,0);assert.equal(queue.active,null);assert.ok(fs.existsSync(path.join(directory,'00001.png')));assert.ok(!fs.readdirSync(directory).some(n=>n.endsWith('.part')));queue.close();
+});
+test('data limit pauses transfers without reporting errors and can be reset',async t=>{
+  const {queue,root}=setup(t,{getSettings:()=>({...DEFAULT_DOWNLOADS,parallel:2}),fetchImage:async()=>new Response(Buffer.alloc(2*1024**2),{headers:{'content-type':'image/png'}})});
+  queue.setLimit(1);queue.enqueue('https://e-hentai.org/g/42/key/',root);await until(()=>queue.jobs[0].status==='waiting'&&!queue.active);
+  assert.equal(queue.jobs[0].error,null);assert.ok(queue.transferred>=1024**2);
+  queue.setLimit(0);await queue.tick();await until(()=>queue.jobs[0].status==='complete');queue.close();
+});

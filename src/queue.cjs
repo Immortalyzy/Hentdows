@@ -3,6 +3,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
+const { identity } = require('./duplicates.cjs');
 const { galleryFromUrl } = require('./sites.cjs');
 const { readJson, writeJson } = require('./storage.cjs');
 const { DEFAULT_DOWNLOADS, inSchedule, blockedTags } = require('./settings.cjs');
@@ -18,27 +19,28 @@ class DownloadQueue extends EventEmitter {
     if (!Array.isArray(this.jobs)) throw new Error('Invalid queue file. Your data has been preserved.');
     for (const job of this.jobs) if (BUSY.includes(job.status)) { job.status = 'paused'; job.waitReason = null; }
     this.active = null; this.running = false; this.closed = false; this.confirmations = new Map(); this.pendingAdds = new Set();
+    this.byteSamples=[];this.transferred=0;this.dataLimit=0;this.lastProgress=0;
     this.limiter = new SpeedLimiter(() => this.getSettings().speedKBps, sleep);
   }
   snapshot() { return structuredClone(this.jobs); }
   archiveCompleted(indexedPaths) {
     const indexed=new Set(indexedPaths),completed=this.jobs.filter(j=>j.status==='complete'&&indexed.has(j.directory));
-    const archive=new Set(completed.slice(0,Math.max(0,completed.length-100)).map(j=>j.id));
+    const archive=new Set(completed.map(j=>j.id));
     if(archive.size){this.jobs=this.jobs.filter(j=>!archive.has(j.id));this.save();}
   }
   save() { writeJson(this.file, this.jobs); this.emit('change', this.snapshot()); }
   kick() { if (!this.closed) void this.pump().catch(error => this.emit('problem', error.message)); }
 
-  async add(url, root, position) {
+  async add(url, root, position, suppliedMetadata) {
     const gallery = galleryFromUrl(url);
     if (!gallery) throw new Error('Open a supported gallery before downloading.');
-    const existing = this.jobs.find(j => j.key === gallery.key && j.status !== 'cancelled');
+    const existing = this.jobs.find(j => identity(j.site,j.sourceId) === identity(gallery.site,gallery.id) && j.status !== 'cancelled');
     if (existing) return existing.id;
     const options = this.getSettings();
-    let metadata, overrideBlocked = false, initialError;
+    let metadata=suppliedMetadata, overrideBlocked = false, initialError;
     if (options.blockedTags.trim()) {
       const controller = new AbortController(); this.pendingAdds.add(controller);
-      try { metadata = await this.getMetadata(gallery, controller.signal); }
+      try { metadata ||= await this.getMetadata(gallery, controller.signal); }
       finally { this.pendingAdds.delete(controller); }
       const blocked = blockedTags(metadata.tags || [], options.blockedTags);
       if (blocked.length) {
@@ -60,13 +62,13 @@ class DownloadQueue extends EventEmitter {
     if (this.closed) throw new Error('The download queue is closing.');
     const gallery = galleryFromUrl(url);
     if (!gallery) throw new Error('Open a supported gallery before downloading.');
-    const existing = this.jobs.find(j => j.key === gallery.key && j.status !== 'cancelled');
+    const existing = this.jobs.find(j => identity(j.site,j.sourceId) === identity(gallery.site,gallery.id) && j.status !== 'cancelled');
     if (existing) return existing.id;
     if (!path.isAbsolute(root)) throw new Error('Choose an absolute download folder.');
     const options = this.getSettings();
     const job = { ...gallery, id: randomUUID(), sourceId: gallery.id, title: metadata?.title || `${gallery.site} ${gallery.id}`,
       directory: path.join(root, gallery.site, gallery.id), status: initialError ? 'error' : 'queued', completed: 0, total: 0,
-      files: [], createdAt: new Date().toISOString(), error: initialError || null, overrideBlocked };
+      tags:metadata?.tags||[],thumbnailUrl:metadata?.thumbnail||null, expectedPages:metadata?.expectedPages||0, errorLog:[], files: [], createdAt: new Date().toISOString(), error: initialError || null, overrideBlocked };
     if ((position || options.newPosition) === 'top') this.jobs.splice(this.active ? this.jobs.findIndex(j => j.id === this.active.id) + 1 : 0, 0, job);
     else this.jobs.push(job);
     if (options.autoStart && !initialError) this.running = true;
@@ -76,6 +78,8 @@ class DownloadQueue extends EventEmitter {
     const job = this.jobs.find(j => j.id === id);
     if (!job) throw new Error('Download not found.');
     if (action === 'pause' && BUSY.includes(job.status)) job.status = 'paused';
+    else if (action === 'freeze' && [...BUSY,'paused'].includes(job.status)) job.status = 'frozen';
+    else if (action === 'unfreeze' && job.status === 'frozen') job.status = 'queued';
     else if (action === 'cancel' && job.status !== 'complete') job.status = 'cancelled';
     else if (action === 'resume' && ['paused', 'error', 'cancelled', 'queued', 'waiting'].includes(job.status)) {
       if (this.jobs.some(other => other.id !== id && other.key === job.key && other.status !== 'cancelled')) throw new Error('This gallery already has another download.');
@@ -84,6 +88,29 @@ class DownloadQueue extends EventEmitter {
     job.waitReason = null;
     if (this.active?.id === id) this.active.controller.abort();
     this.save(); this.kick();
+  }
+  stats() {
+    const now=Date.now();this.byteSamples=this.byteSamples.filter(s=>now-s.time<5000);
+    const bytes=this.byteSamples.reduce((sum,s)=>sum+s.bytes,0),elapsed=this.byteSamples.length?Math.max(1000,now-this.byteSamples[0].time):1000;
+    return {bytesPerSecond:Math.round(bytes*1000/elapsed),transferred:this.transferred,dataLimit:this.dataLimit,activeId:this.active?.id||null};
+  }
+  setLimit(mb){if(!Number.isInteger(mb)||mb<0||mb>1000000)throw new Error('Enter a limit between 0 and 1000000 MiB.');this.dataLimit=mb*1024**2;this.transferred=0;this.emit('change');}
+  async bulk(action,ids){
+    if(!Array.isArray(ids)||new Set(ids).size!==ids.length||!ids.length||ids.length>10000||ids.some(id=>typeof id!=='string'||!this.jobs.some(j=>j.id===id)))throw new Error('Select valid downloads.');
+    const chosen=new Set(ids),jobs=this.jobs.filter(j=>chosen.has(j.id));
+    if(['top','bottom','reverse','order'].includes(action)){
+      const active=this.jobs.filter(j=>j.id===this.active?.id),other=this.jobs.filter(j=>!chosen.has(j.id)&&j.id!==this.active?.id),moving=(action==='order'?ids.map(id=>this.jobs.find(j=>j.id===id)):jobs).filter(j=>j.id!==this.active?.id);
+      this.jobs=[...active,...(action==='bottom'?[...other,...moving]:action==='reverse'?[...moving.reverse(),...other]:[...moving,...other])];this.save();return;
+    }
+    if(['remove','restart'].includes(action)){
+      const wasRunning=this.running;for(const job of jobs)if(job.status!=='complete')this.action(job.id,'cancel');
+      while(this.active&&chosen.has(this.active.id))await delay(10);
+      if(action==='remove')this.jobs=this.jobs.filter(j=>!chosen.has(j.id));
+      else for(const job of jobs){job.files=[];job.completed=0;job.thumbnail=null;job.error=null;job.errorLog=[];job.status='queued';}
+      this.running=action==='restart'||wasRunning;this.save();this.kick();return;
+    }
+    if(!['resume','pause','freeze','unfreeze'].includes(action))throw new Error('Unknown queue action.');
+    for(const job of jobs)this.action(job.id,action);
   }
   startAll() {
     this.running = true;
@@ -98,6 +125,7 @@ class DownloadQueue extends EventEmitter {
   close() { this.closed = true; for (const controller of this.pendingAdds) controller.abort(); this.pauseAll(); }
   async gate() {
     const options = this.getSettings();
+    if(this.dataLimit&&this.transferred>=this.dataLimit)return 'Download data limit reached. Reset the limit to continue.';
     if (!inSchedule(options, this.now())) return 'Waiting for the scheduled download window.';
     const network = await this.network(options.wifiOnly || (options.skipLarge && options.largeOnWifi));
     if (!network.online) return 'Waiting for a network connection.';
@@ -152,7 +180,7 @@ class DownloadQueue extends EventEmitter {
             const file = await this.downloadPage(job, gallery.pages[index], index, options, signal, limitLarge);
             signal.throwIfAborted(); job.files.push(file); job.completed = job.files.length;
             writeJson(path.join(job.directory, 'content.json'), this.manifest(job)); this.save();
-          } catch (error) { if (!signal.aborted) fail(error); return; }
+          } catch (error) { if (!signal.aborted) {error.page=index+1;fail(error);}; return; }
         }
       };
       await Promise.all(Array.from({ length: Math.min(options.parallel || 4, gallery.pages.length) }, worker));
@@ -177,8 +205,8 @@ class DownloadQueue extends EventEmitter {
       this.emit('complete', job.directory);
     } catch (error) {
       // All concurrent writers settle before reporting an internal worker failure.
-      if (!['paused', 'cancelled', 'queued', 'waiting'].includes(job.status)) {
-        job.status = 'error'; job.error = error.message;
+      if (!['paused', 'cancelled', 'queued', 'waiting', 'frozen'].includes(job.status)) {
+        job.status = 'error'; job.error = (error.page?'Page '+error.page+': ':'')+error.message;job.errorLog=(job.errorLog||[]).concat({at:new Date().toISOString(),message:job.error}).slice(-100);
         if (fs.existsSync(path.join(job.directory, 'content.json'))) writeJson(path.join(job.directory, 'content.json'), this.manifest(job));
         this.save();
       }
@@ -195,7 +223,9 @@ class DownloadQueue extends EventEmitter {
         const name = `${String(index + 1).padStart(5, '0')}.${ext}`;
         let pageBytes = 0;
         const bytes = await saveResponse(response, path.join(job.directory, name), signal, this.limiter, count => {
-          pageBytes += count;
+          pageBytes += count;this.transferred+=count;this.byteSamples.push({time:Date.now(),bytes:count});
+          if(Date.now()-this.lastProgress>250){this.lastProgress=Date.now();this.emit('change');}
+          if(this.dataLimit&&this.transferred>=this.dataLimit){job.status='waiting';job.waitReason='Download data limit reached. Reset the limit to continue.';this.active?.controller.abort();this.save();signal.throwIfAborted();}
           if (limitLarge) {
             const saved = job.files.filter(f => !f.ignored && !f.placeholder);
             const estimate = (saved.reduce((sum, f) => sum + f.bytes, 0) + pageBytes) / (saved.length + 1) * job.total;

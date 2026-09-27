@@ -10,6 +10,8 @@ const { createSessionFetch } = require('./session-fetch.cjs');
 const { SETTINGS, validateDownloads } = require('./settings.cjs');
 const { createNetworkProbe } = require('./network.cjs');
 const { LIBRARY_SETTINGS, VIEWER_SETTINGS, validatePreferences } = require('./reading-settings.cjs');
+const { createDuplicateChecker } = require('./download-check.cjs');
+const { identity } = require('./duplicates.cjs');
 const { Library } = require('./library.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'hentdows', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -31,12 +33,20 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       const url = new URL(request.url);
       const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
       if (url.hostname !== 'app') return new Response('Not found', { status: 404 });
+      const queueAsset=/^queue\/([a-f0-9-]+)\/cover$/.exec(name);
+      if(queueAsset){
+        const job=queue.jobs.find(j=>j.id===queueAsset[1]);if(!job||!SITES.some(site=>site.id===job.site))return new Response('Not found',{status:404});
+        const first=job.files.find(f=>!f.ignored&&f.name&&path.basename(f.name)===f.name);
+        if(first){try{const base=fs.realpathSync(job.directory),file=fs.realpathSync(path.join(base,first.name));if(path.dirname(file)===base)return net.fetch(pathToFileURL(file).href);}catch{}}
+        if(job.thumbnailUrl){try{const cover=await checkDuplicate.loadCover(job.thumbnailUrl,job.url,AbortSignal.timeout(15000));if(cover)return new Response(cover.data,{headers:{'content-type':cover.type}});}catch{}}
+        return net.fetch(pathToFileURL(path.join(__dirname,'assets','missing-'+job.site+'.png')).href);
+      }
       const asset = /^library\/(\d+)\/(cover|\d+)$/.exec(name);
       if (asset) {
         try { const file = await library.call('asset', { id: Number(asset[1]), page: asset[2] === 'cover' ? 'cover' : Number(asset[2]) }); return net.fetch(pathToFileURL(file).href); }
         catch { return new Response('Image unavailable', { status: 404 }); }
       }
-      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js'].includes(name)) return new Response('Not found', { status: 404 });
+      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js', 'queue-ui.js', 'queue.css'].includes(name)) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(path.join(__dirname, 'ui', name)).href);
     });
   }
@@ -67,6 +77,8 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   const probe = networkProbe || createNetworkProbe(() => net.isOnline());
   const queue = new DownloadQueue({ file: path.join(dataPath, 'queue.json'), ...sources, getSettings,
     network: needWifi => needWifi ? probe() : Promise.resolve({ online: offscreen || net.isOnline(), wifi: null }) });
+  const checkDuplicate=createDuplicateChecker({library,queue,sources,file:path.join(dataPath,'cover-hashes.json'),getSettings});
+  let addChain=Promise.resolve();const pendingEnqueues=new Map();
   const policyTimer = setInterval(() => queue.tick().catch(e => { error = e.message; publish(); }), 15000);
   const wc = browser.webContents;
   function guard(contents) {
@@ -92,7 +104,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     return { sites: SITES, panel, url, gallery: galleryFromUrl(url), downloadRoot: settings.downloadRoot,
       librarySettings: settings.library, viewerSettings: settings.viewer, librarySchema: LIBRARY_SETTINGS, viewerSchema: VIEWER_SETTINGS,
       downloadSettings: settings.downloads, settingsSchema: SETTINGS, queueRunning: queue.running,
-      jobs: queue.snapshot(), error, notice, loading: !wc.isDestroyed() && wc.isLoading(),
+      jobs: queue.jobs.filter(j=>!['complete','cancelled'].includes(j.status)).map(({files,...job})=>({...job,bytes:files.reduce((s,f)=>s+f.bytes,0)})), queueStats:queue.stats(), error, notice, loading: !wc.isDestroyed() && wc.isLoading(),
       libraryRevision, libraryScan,
       canBack: !wc.isDestroyed() && wc.navigationHistory.canGoBack(), canForward: !wc.isDestroyed() && wc.navigationHistory.canGoForward() };
   }
@@ -103,6 +115,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     try { await wc.loadURL(url); } catch (e) { if (e.code !== 'ERR_ABORTED') { error = e.message; publish(); } }
   }
   function back() {
+    if (panel === 'queue') { win.webContents.send('queue:back'); return; }
     if (panel === 'library') { win.webContents.send('library:back'); return; }
     if (panel === 'settings') panel = settingsReturnPanel;
     else if (panel !== 'browser') panel = wc.getURL() ? 'browser' : 'sources';
@@ -110,20 +123,38 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     else panel = 'sources';
     layout(); publish();
   }
-  async function enqueue(url) {
-    const gallery = galleryFromUrl(url);
-    if (gallery) {
-      const stored = await library.call('findSource', { site: gallery.site, sourceId: gallery.id });
-      if (stored && fs.existsSync(stored.path)) { notice = 'This book is already in your library.'; error = ''; publish(); return null; }
-    }
-    let position = settings.downloads.newPosition;
-    if (position === 'ask') {
-      const result = await dialog.showMessageBox(win, { type: 'question', title: 'New downloads position', message: 'Where should this gallery be added?', buttons: ['Top', 'Bottom', 'Cancel'], defaultId: 1, cancelId: 2 });
-      if (result.response === 2) return null;
-      position = result.response === 0 ? 'top' : 'bottom';
-    }
-    const id = await queue.add(url, settings.downloadRoot, position);
-    notice = 'Gallery is in the download queue.'; error = ''; publish(); return id;
+  function enqueue(url) {
+    const gallery=galleryFromUrl(url);if(!gallery)return Promise.reject(new Error('Open a supported gallery before downloading.'));
+    const key=identity(gallery.site,gallery.id);if(pendingEnqueues.has(key))return pendingEnqueues.get(key);
+    const request=addChain.then(()=>prepareDownload(gallery));addChain=request.catch(()=>{});
+    pendingEnqueues.set(key,request);request.finally(()=>pendingEnqueues.delete(key)).catch(()=>{});return request;
+  }
+  async function prepareDownload(gallery) {
+    if(queue.closed)throw new Error('The download queue is closing.');
+    const existing=queue.jobs.find(j=>identity(j.site,j.sourceId)===identity(gallery.site,gallery.id)&&j.status!=='cancelled');
+    const feedback=(status,message,id)=>{notice=message;error='';publish();win.webContents.send('app:download-feedback',{status,message});return {status,message,id};};
+    if(existing)return feedback('duplicate',existing.status==='complete'?'Already downloaded.':'Already in the download queue.',existing.id);
+    const stored=await library.call('findSource',{site:gallery.site,sourceId:gallery.id});
+    if(stored&&fs.existsSync(stored.path))return feedback('duplicate','This book is already in your library.',stored.id);
+    const controller=new AbortController();queue.pendingAdds.add(controller);
+    try{
+      const metadata=await sources.getMetadata(gallery,controller.signal);controller.signal.throwIfAborted();
+      const duplicate=await checkDuplicate(gallery,metadata,controller.signal);controller.signal.throwIfAborted();
+      if(duplicate){
+        const result=await dialog.showMessageBox(win,{type:'question',title:'Possible duplicate',message:'A similar book is already '+(duplicate.queue?'in the queue.':'in your library.'),detail:duplicate.title+'\n'+duplicate.pages+' saved pages · '+(metadata.expectedPages||'?')+' online pages\nSimilarity: '+Math.round(duplicate.similarity*100)+'%\nDownload this gallery as a separate book?',buttons:['Cancel','Download anyway',duplicate.queue?'Show queue':'Show existing book'],defaultId:0,cancelId:0});
+        if(result.response===2){panel=duplicate.queue?'queue':'library';layout();publish();if(!duplicate.queue)win.webContents.send('library:open',duplicate.id);return feedback('duplicate','Showing the existing book.');}
+        if(result.response!==1)return feedback('cancelled','Download cancelled.');
+      }
+      let position=settings.downloads.newPosition;
+      if(position==='ask'){
+        const result=await dialog.showMessageBox(win,{type:'question',title:'New downloads position',message:'Where should this gallery be added?',buttons:['Top','Bottom','Cancel'],defaultId:1,cancelId:2});
+        if(result.response===2)return feedback('cancelled','Download cancelled.');position=result.response===0?'top':'bottom';
+      }
+      controller.signal.throwIfAborted();
+      const id=await queue.add(gallery.url,settings.downloadRoot,position,metadata);
+      const queued=queue.jobs.find(j=>j.id===id);
+      return feedback(queued?.status==='error'?'error':'queued',queued?.status==='error'?'Added to Errors: '+queued.error:'Added to the download queue.',id);
+    }finally{queue.pendingAdds.delete(controller);}
   }
   for (const contents of [wc, win.webContents]) contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
@@ -167,7 +198,8 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       await queue.tick(); return updated;
     },
     'app:command': (_, command) => {
-      if (command === 'back') back();
+      if (command === 'leave-queue') { panel=wc.getURL()?'browser':'sources';layout();publish(); }
+      else if (command === 'back') back();
       else if (command === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
       else if (command === 'reload') wc.reload();
       else if (command === 'pause-all') queue.pauseAll();
@@ -176,8 +208,20 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     },
     'app:enqueue': () => enqueue(wc.getURL()),
     'app:queue-action': (_, id, action) => {
-      if (!['pause', 'resume', 'cancel'].includes(action) || typeof id !== 'string') throw new Error('Invalid download action.');
+      if (!['pause', 'resume', 'cancel', 'freeze', 'unfreeze'].includes(action) || typeof id !== 'string') throw new Error('Invalid download action.');
       queue.action(id, action);
+    },
+    'app:queue-bulk': async (_, action, ids) => {
+      if(action==='limit'){queue.setLimit(ids);await queue.tick();return;}
+      if(action==='restart'){
+        const choice=await dialog.showMessageBox(win,{type:'warning',message:'Download selected books from the beginning?',detail:'Their downloaded pages will be replaced as the download progresses.',buttons:['Cancel','Restart downloads'],defaultId:0,cancelId:0});if(choice.response!==1)return;
+      }
+      return queue.bulk(action,ids);
+    },
+    'app:queue-import': async (_, text) => {
+      if(typeof text!=='string'||text.length>200000)throw new Error('Paste up to 1000 gallery URLs.');
+      const urls=[...new Set(text.split(/\s+/).filter(Boolean))];if(urls.length>1000||urls.some(url=>!galleryFromUrl(url)))throw new Error('Use one supported gallery URL per line (maximum 1000).');
+      const results=[];for(const url of urls){try{results.push(await enqueue(url));}catch(e){results.push({status:'error',message:e.message});}}return results;
     },
     'app:choose-folder': async () => {
       const result = await dialog.showOpenDialog(win, { defaultPath: settings.downloadRoot, properties: ['openDirectory', 'createDirectory'] });
@@ -242,9 +286,9 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   });
   const remoteHandlers = [];
   for (const [name, action] of [['browser:open-link', navigate], ['browser:download-link', enqueue]]) {
-    const handler = (event, url) => {
+    const handler = (event, url, requestId) => {
       if (event.sender !== wc || event.senderFrame !== wc.mainFrame || !allowedNavigation(event.senderFrame.url) || !galleryFromUrl(url)) return;
-      Promise.resolve().then(() => action(url)).catch(e => { error = e.message; publish(); });
+      Promise.resolve().then(() => action(url)).then(result=>{if(name==='browser:download-link'&&!wc.isDestroyed())wc.send('browser:download-result',{requestId,...result});}).catch(e => { error = e.message; publish();if(name==='browser:download-link'&&!wc.isDestroyed())wc.send('browser:download-result',{requestId,status:'error',message:e.message}); });
     };
     ipcMain.on(name, handler); remoteHandlers.push([name, handler]);
   }

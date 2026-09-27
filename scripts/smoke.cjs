@@ -30,6 +30,7 @@ app.whenReady().then(async () => {
     return new Response(body, { headers: { 'content-type': type } });
   });
   const { win, browser, queue, navigate } = await createApplication({ show: false, offscreen: true, dataPath: root });
+  const completed=[];queue.on('complete',directory=>completed.push(structuredClone(queue.jobs.find(j=>j.directory===directory))));
   browser.webContents.on('preload-error', (_, file, error) => console.error('Preload failed', file, error));
   const errors = [];
   win.webContents.on('console-message', (_event, _level, message) => { if (/error|not defined/i.test(message)) errors.push(message); });
@@ -46,14 +47,14 @@ app.whenReady().then(async () => {
     await browser.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 50, y: 40, button: 'left', clickCount });
   }
   browser.webContents.debugger.detach();
-  await until(() => queue.jobs[0]?.status === 'complete' || queue.jobs[0]?.status === 'error');
-  assert.equal(queue.jobs[0].status, 'complete', queue.jobs[0].error);
-  assert.equal(queue.jobs[0].completed, 2);
+  await until(() => completed.length===1 || queue.jobs[0]?.status === 'error');
+  assert.equal(completed[0]?.status, 'complete', queue.jobs[0]?.error);
+  assert.equal(completed[0].completed, 2);
   assert.equal(browser.webContents.getURL(), 'https://e-hentai.org/');
-  queue.enqueue('https://exhentai.org/g/42/key/', path.join(root, 'downloads'));
+  queue.enqueue('https://exhentai.org/g/43/key/', path.join(root, 'downloads'));
   queue.enqueue('https://hitomi.la/galleries/99.html', path.join(root, 'downloads'));
-  await until(() => queue.jobs.length === 3 && queue.jobs.every(job => ['complete', 'error'].includes(job.status)));
-  for (const job of queue.jobs) assert.equal(job.status, 'complete', job.error);
+  await until(() => completed.length===3 || queue.jobs.some(job=>job.status==='error'));
+  for (const job of [...completed,...queue.jobs]) assert.equal(job.status, 'complete', job.error);
   assert.equal(originalsRequested, 0, 'Default downloads must not request original images');
   // A single click still navigates; Esc returns to results.
   browser.webContents.sendInputEvent({ type: 'mouseDown', x: 50, y: 40, button: 'left', clickCount: 1 });
@@ -63,7 +64,7 @@ app.whenReady().then(async () => {
   await until(() => browser.webContents.getURL() === 'https://e-hentai.org/');
   assert.equal(await win.webContents.executeJavaScript('window.hentdows.navigate("file:///C:/Windows/win.ini").then(() => false, () => true)'), true);
   await win.webContents.executeJavaScript('window.hentdows.panel("queue")');
-  await until(() => win.webContents.executeJavaScript('document.querySelector(".job") !== null'));
+  await until(() => win.webContents.executeJavaScript('document.querySelector(".job") === null'));
   await win.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true }).then(image => fs.writeFileSync(path.join(root, 'queue.png'), image.toPNG()));
   await win.webContents.executeJavaScript('document.getElementById("settings").click()');
   await until(() => win.webContents.executeJavaScript('document.getElementById("settings-panel").hidden === false'));
@@ -71,9 +72,9 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript('document.getElementById("setting-ehOriginal").click()');
   await until(() => JSON.parse(fs.readFileSync(path.join(root, 'settings.json'))).downloads.ehOriginal === true);
   await ses.cookies.set({ url: 'https://e-hentai.org/', name: 'ipb_member_id', value: '42' });
-  queue.enqueue('https://e-hentai.org/g/43/key/', path.join(root, 'downloads'));
-  await until(() => queue.jobs.at(-1)?.status === 'complete' || queue.jobs.at(-1)?.status === 'error');
-  assert.equal(queue.jobs.at(-1).status, 'complete', queue.jobs.at(-1).error);
+  queue.enqueue('https://e-hentai.org/g/44/key/', path.join(root, 'downloads'));
+  await until(() => completed.length===4 || queue.jobs.at(-1)?.status==='error');
+  assert.equal(completed.at(-1)?.status,'complete',queue.jobs.at(-1)?.error);
   assert.ok(originalsRequested > 0);
   await win.webContents.executeJavaScript('document.getElementById("setting-ehOriginal").click()');
   await until(() => JSON.parse(fs.readFileSync(path.join(root, 'settings.json'))).downloads.ehOriginal === false);

@@ -50,7 +50,7 @@ async function scan() {
   } finally {scanning=false;parentPort.postMessage({event:'scan',state:{running:false,checked,added,skipped,cancelled:cancelScan,errors:errors.slice(-20)}});}
 }
 const methods={
-  adjacent:input=>store.adjacent(input),query:input=>store.query(input),get:id=>store.get(id),suggestions:input=>store.suggestions(input),roots:()=>store.roots(),groups:()=>store.groups(),
+  duplicateCandidates:input=>store.duplicateCandidates(input),adjacent:input=>store.adjacent(input),query:input=>store.query(input),get:id=>store.get(id),suggestions:input=>store.suggestions(input),roots:()=>store.roots(),groups:()=>store.groups(),
   facets:input=>store.facets(input),findSource:input=>store.findSource(input),indexed:paths=>store.indexed(paths),
   update:input=>store.update(input),group:input=>store.group(input),read:input=>store.read(input),detach:ids=>store.detach(ids),shuffle:()=>store.shuffle(),
   restoreDetached:()=>store.restoreDetached(),scan,cancel:()=>{cancelScan=true;},

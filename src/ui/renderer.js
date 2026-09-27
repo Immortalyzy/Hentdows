@@ -51,14 +51,14 @@ function element(tag, text, className) {
 }
 function button(text, action) { const el = element('button', text); el.onclick = () => run(action); return el; }
 function render(state) {
-  current = state;
+  current = state;document.body.classList.toggle('queue-open',state.panel==='queue');
   document.body.classList.toggle('loading', state.loading);
   $('source-panel').hidden = state.panel !== 'sources'; $('queue-panel').hidden = state.panel !== 'queue';
   $('settings-panel').hidden = state.panel !== 'settings';
   $('library-panel').hidden = state.panel !== 'library';
   $('address-form').hidden = state.panel === 'library'; $('library-search').hidden = state.panel !== 'library';
   $('login').hidden = state.panel === 'library';
-  for (const id of ['forward','reload','download']) $(id).hidden = state.panel === 'library';
+  for (const id of ['forward','reload','download']) $(id).hidden = ['library','queue'].includes(state.panel);
   $('heading').textContent = state.panel === 'library' ? 'Library' : state.panel === 'settings' ? 'Settings' : state.panel === 'queue' ? 'Downloads' : 'Browser';
   window.libraryUI?.render(state);
   renderSettings(state);
@@ -76,29 +76,7 @@ function render(state) {
     const info = element('span', null, 'site-info'); info.append(element('strong', site.name), element('small', new URL(site.url).hostname));
     item.append(info, element('span', '›', 'site-arrow')); $('site-list').append(item);
   });
-  // Keep focused controls in place between browser loading events.
-  const signature = JSON.stringify([state.queueRunning, state.jobs]);
-  if ($('jobs').dataset.signature === signature) return;
-  $('jobs').dataset.signature = signature; $('jobs').replaceChildren();
-  if (!state.jobs.length) {
-    const empty = element('div', null, 'empty');
-    empty.append(element('div', '⇩', 'empty-icon'), element('h3', 'Your queue is empty'), element('p', 'Open a gallery and use the download button, or double-click a gallery link.'));
-    $('jobs').append(empty);
-  }
-  const finished = job => ['complete', 'cancelled'].includes(job.status);
-  for (const job of [...state.jobs.filter(j => !finished(j)), ...state.jobs.filter(finished).reverse()]) {
-    const row = element('article', null, 'job'); row.append(element('h3', job.title));
-    const detail = element('div', null, 'detail'); detail.append(element('span', `${job.site} · ${job.status}`), element('span', `${job.completed} / ${job.total || '—'} pages`)); row.append(detail);
-    const progress = element('progress'); progress.max = job.total || 1; progress.value = job.completed; progress.setAttribute('aria-label', 'Download progress'); row.append(progress);
-    if (job.error) row.append(element('p', job.error));
-    if (job.waitReason) row.append(element('p', job.waitReason, 'wait-reason'));
-    const actions = element('div', null, 'job-actions');
-    if (['queued', 'waiting', 'resolving', 'downloading'].includes(job.status)) actions.append(button('Pause', () => api.queueAction(job.id, 'pause')));
-    if (['paused', 'error', 'cancelled'].includes(job.status) || (job.status === 'queued' && !state.queueRunning)) actions.append(button(job.status === 'error' ? 'Retry' : 'Resume', () => api.queueAction(job.id, 'resume')));
-    if (!['complete', 'cancelled'].includes(job.status)) actions.append(button('Cancel', () => api.queueAction(job.id, 'cancel')));
-    if (job.completed) actions.append(button('Show files', () => api.openFolder(job.id)));
-    row.append(actions); $('jobs').append(row);
-  }
+  window.queueUI?.render(state);
 }
 $('address-form').onsubmit = event => { event.preventDefault(); const value = $('address').value.trim(); run(() => api.navigate(value.includes('://') ? value : `https://${value}`)); };
 $('sources').onclick = () => run(() => api.panel(current?.panel === 'sources' && current.url ? 'browser' : 'sources'));

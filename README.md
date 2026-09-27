@@ -72,6 +72,31 @@ settings, queue state, and Chromium cookies live in Electron's per-user
 `Hentdows` data directory (the development app name may appear as `hentdows`).
 Cookies are managed by Chromium and are not copied into gallery manifests.
 
+## Download queue and duplicate checks
+
+A trusted double-click shows **Checking gallery…**, followed by an animated green
+confirmation only when the gallery has been queued. Existing books and failures
+have distinct messages. Queue and Errors tabs replace the completed-job history.
+Completed downloads appear in the library; failed downloads remain retryable.
+
+Queue controls include title/tag/ID search, source filtering, double-click or Space
+selection, drag ordering, move top/bottom, reverse, freeze/unfreeze, bulk retry,
+restart from scratch, removal, URL-list import, error details/statistics and a
+transfer limit. The bottom bar shows queue progress and recent transfer speed.
+Frozen jobs stay frozen when the queue starts. Retry retains completed pages;
+restart from scratch asks before replacing them. Removing an entry keeps partial
+files. The transfer limit is session-only and applies to all Windows connections.
+
+Automatic duplicate checks recognize identical gallery IDs across E-hentai and
+ExHentai. Likely duplicates use Hentoid-style title similarity, artist/language
+checks, cover hashes and sensitivity settings under **Downloader → Duplicate
+detection**. The prompt offers Cancel, Download anyway, or Show existing book.
+It never automatically replaces or deletes the existing copy. Cover hashes are
+cached, and candidate metadata is queried in batches for large libraries.
+
+See [queue implementation notes](docs/vibe_steps/02_download/03_queue_amendments.md)
+for reference mapping and remaining download-mode differences.
+
 ## Library
 
 The app opens in the library. Completed Hentdows downloads are indexed automatically;
@@ -101,8 +126,9 @@ their metadata and reading state. Incomplete downloads stay in the queue.
 
 Library metadata lives in `library.sqlite` in the app's data directory. Queries and
 indexing run in a worker, with indexed sorting and trigram substring search.
-Successfully indexed download history is trimmed to the latest 100 completed jobs;
-the library retains the books and checks for duplicates when enqueueing.
+Completed downloads disappear from the queue immediately and their queue records
+are removed after successful library indexing. The library retains their metadata
+and checks for duplicates when enqueueing.
 
 This milestone focuses on Hentdows downloads. Hentoid database/backup import,
 CBZ/PDF libraries, archive conversion, book merge/split, LANraragi integration,
@@ -137,6 +163,7 @@ no adjacent chapters; chapter slideshow looping repeats that book. See the
 npm test
 npm run smoke
 npm run smoke:network
+npm run smoke:queue
 npm run smoke:library
 npm run smoke:reader
 npm run benchmark:library
@@ -159,8 +186,8 @@ does not scan or validate an actual 200–400 GiB image collection.
 Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
-saved profile. The library/viewer settings build is also available locally under
-`dist/0.4.0/Hentdows-win32-x64/` so it can be built while the older copy is running.
+saved profile. The download queue amendment build is also available locally under
+`dist/0.5.0/Hentdows-win32-x64/` so it can be built while the older copy is running.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

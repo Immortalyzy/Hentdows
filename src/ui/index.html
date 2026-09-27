@@ -7,7 +7,7 @@
   <title>Hentdows</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="library.css">
-  <link rel="stylesheet" href="reader.css">
+  <link rel="stylesheet" href="reader.css"><link rel="stylesheet" href="queue.css">
 </head>
 <body>
   <header>
@@ -33,9 +33,14 @@
       <div class="folder"><span>DOWNLOAD FOLDER</span><p id="folder-path"></p><button id="choose-folder">Choose folder</button></div>
     </section>
     <section id="queue-panel" hidden>
-      <div class="queue-heading"><div><p class="eyebrow">SAVED FOR LATER</p><h2>Download queue</h2></div><div class="queue-controls"><button id="start-all">Start queue</button><button id="pause-all">Pause all</button></div></div>
+      <div class="queue-tabs"><button id="queue-pending-tab">Queue</button><button id="queue-errors-tab">Errors</button><button id="queue-menu-button" title="Queue actions">⋯</button></div>
+      <div class="queue-search"><input id="queue-search" type="search" aria-label="Search downloads" placeholder="Search title, tags or gallery ID"><select id="queue-source" aria-label="Filter download source"><option value="">All sources</option><option value="ehentai">E-hentai</option><option value="exhentai">ExHentai</option><option value="hitomi">Hitomi</option></select></div>
+      <div id="queue-menu" hidden><button id="queue-reverse">Reverse queue</button><button id="queue-limit">Download limit</button><button id="queue-import">Import links</button><button id="queue-retry-all">Retry all errors</button><button id="queue-remove-all">Clear this tab</button><button id="queue-error-stats">Error statistics</button><button id="queue-settings">Settings</button></div>
+      <div id="queue-selection" hidden><span id="queue-selected"></span><button id="queue-select-all">Select all</button><select id="queue-action" aria-label="Selected downloads action"><option value="">Actions…</option><option value="top">Move to top</option><option value="bottom">Move to bottom</option><option value="freeze">Freeze</option><option value="unfreeze">Unfreeze</option><option value="resume">Retry / resume</option><option value="restart">Download from scratch</option><option value="remove">Remove</option></select><button id="queue-deselect">×</button></div>
       <div id="jobs"></div>
-      <p class="queue-note">Downloads paused by closing the app can be resumed here. Completed pages are kept when you retry.</p>
+      <div class="queue-pager"><button id="queue-prev">←</button><span id="queue-page"></span><button id="queue-next">→</button></div>
+      <p class="queue-note">Completed books move to the library. Retry keeps saved pages. Removing a queue entry keeps its partial files.</p>
+      <div class="queue-bottom"><button id="start-all">▶ Start</button><button id="pause-all">Ⅱ Pause</button><div><strong id="queue-status"></strong><small id="queue-info"></small></div></div>
     </section>
     <section id="settings-panel" hidden>
       <div class="settings-heading"><p class="eyebrow">SETTINGS</p><h2 id="settings-title">Downloader</h2><p>Preferences save automatically.</p><select id="settings-section" aria-label="Settings section"><option value="downloads">Downloader</option><option value="library">Library</option><option value="viewer">Viewer</option></select></div>
@@ -43,11 +48,13 @@
       <p class="settings-footnote" id="settings-note"></p>
     </section>
   </main>
+  <dialog id="queue-dialog"><div id="queue-dialog-content"></div><button id="queue-dialog-close">Close (Esc)</button></dialog>
   <dialog id="library-dialog"><div id="library-dialog-content"></div><button id="library-dialog-close">Close (Esc)</button></dialog>
   <footer><button id="back" class="icon" title="Back (Esc)" aria-label="Back">←</button><button id="forward" class="icon" title="Forward" aria-label="Forward">→</button><button id="reload" class="icon" title="Reload" aria-label="Reload">⟳</button><span id="status" role="status">Choose a source</span><button id="download" class="download" disabled title="Download this gallery" aria-label="Download this gallery">⇩</button></footer>
   <script src="renderer.js"></script>
   <script src="virtual-list.js"></script>
   <script src="reader.js"></script>
   <script src="library-ui.js"></script>
+  <script src="queue-ui.js"></script>
 </body>
 </html>
