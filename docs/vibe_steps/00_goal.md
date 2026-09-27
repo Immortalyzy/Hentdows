@@ -25,7 +25,7 @@ The key features should include (and should be implemented in this order):
     - if certain actions really need a button, make it display narrowly at the bottom.
 
 
-For functions and details that are not mentioned above, replciate exactly what Hentoid offers. If certain functions are not supported on Windows, pause the design/implementation for discussion and decision.
+For functions and details that are not mentioned above, replciate exactly what Hentoid offers and uses. If certain functions are not supported on Windows, pause the design/implementation for discussion and decision.
 
 ## future
 This repo should replicate the cloned Hentoid and its current functions. Migration of future Hentoid functions back to this repo or future development on Android for this repo are NOT considered.

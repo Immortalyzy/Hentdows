@@ -1,0 +1,15 @@
+Hentdows
+Copyright 2026 Hentdows contributors
+
+This project contains adaptations of Hentoid, distributed under the Apache
+License, Version 2.0. Hentoid's original source is included in Hentoid/.
+Upstream: https://github.com/avluis/Hentoid
+
+The Windows source adapters in src/parsers.cjs and src/sources.cjs adapt the
+behavior of EHentaiParser.kt, ExHentaiParser.kt, HitomiParser.kt,
+EHentaiGalleriesMetadata.kt, and assets/hitomi_pages.js. They have been rewritten
+in JavaScript for Chromium sessions and a streaming Windows download queue.
+The browser layout and colors draw from activity_browser.xml and
+values/colors-palette.xml. This is an independent Windows port.
+
+Original copyright and license notices remain in the reference source tree.

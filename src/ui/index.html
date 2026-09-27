@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <title>Hentdows</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="toolbar"><button id="sources" class="icon" title="Sources" aria-label="Sources">☰</button><h1 id="heading">Browser</h1><button id="login" title="Sign in to E-hentai / ExHentai">Sign in</button><button id="queue" class="icon" title="Download queue" aria-label="Download queue">⇩<span id="count">0</span></button></div>
+    <form id="address-form"><span class="address-mark">↗</span><input id="address" type="text" aria-label="Website address" placeholder="Enter a supported website address" spellcheck="false"><button type="submit" title="Go">Go</button></form>
+  </header>
+  <main>
+    <section id="source-panel">
+      <div class="intro"><div class="wordmark">H</div><p class="eyebrow">HENTDOWS</p><h2>Your next read starts here.</h2><p>Browse a source. Open a gallery. Save it for later.</p></div>
+      <div class="section-label">SOURCES <span>3 available</span></div>
+      <div id="site-list"></div>
+      <div class="hint"><strong>Double-click to download</strong><p>Double-click a gallery link or its thumbnail to add it to the queue. A single click opens the gallery.</p><p>Press <kbd>Esc</kbd> to go back.</p></div>
+      <div class="folder"><span>DOWNLOAD FOLDER</span><p id="folder-path"></p><button id="choose-folder">Choose folder</button></div>
+    </section>
+    <section id="queue-panel" hidden>
+      <div class="queue-heading"><div><p class="eyebrow">SAVED FOR LATER</p><h2>Download queue</h2></div><button id="pause-all">Pause all</button></div>
+      <div id="jobs"></div>
+      <p class="queue-note">Downloads paused by closing the app can be resumed here. Completed pages are kept when you retry.</p>
+    </section>
+  </main>
+  <footer><button id="back" class="icon" title="Back (Esc)" aria-label="Back">←</button><button id="forward" class="icon" title="Forward" aria-label="Forward">→</button><button id="reload" class="icon" title="Reload" aria-label="Reload">⟳</button><span id="status" role="status">Choose a source</span><button id="download" class="download" disabled title="Download this gallery" aria-label="Download this gallery">⇩</button></footer>
+  <script src="renderer.js"></script>
+</body>
+</html>
