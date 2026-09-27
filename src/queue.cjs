@@ -21,6 +21,11 @@ class DownloadQueue extends EventEmitter {
     this.limiter = new SpeedLimiter(() => this.getSettings().speedKBps, sleep);
   }
   snapshot() { return structuredClone(this.jobs); }
+  archiveCompleted(indexedPaths) {
+    const indexed=new Set(indexedPaths),completed=this.jobs.filter(j=>j.status==='complete'&&indexed.has(j.directory));
+    const archive=new Set(completed.slice(0,Math.max(0,completed.length-100)).map(j=>j.id));
+    if(archive.size){this.jobs=this.jobs.filter(j=>!archive.has(j.id));this.save();}
+  }
   save() { writeJson(this.file, this.jobs); this.emit('change', this.snapshot()); }
   kick() { if (!this.closed) void this.pump().catch(error => this.emit('problem', error.message)); }
 
@@ -124,7 +129,7 @@ class DownloadQueue extends EventEmitter {
       const gallery = await this.resolveGallery({ ...job, id: job.sourceId }, signal, options);
       signal.throwIfAborted();
       if (!gallery.pages.length) throw new Error('No images found.');
-      Object.assign(job, { title: gallery.title, tags: gallery.tags, total: gallery.pages.length, status: 'downloading' });
+      Object.assign(job, { title: gallery.title, tags: gallery.tags, uploadedAt: gallery.uploadedAt || 0, total: gallery.pages.length, status: 'downloading' });
       const blocked = blockedTags(gallery.tags || [], options.blockedTags);
       if (blocked.length && !job.overrideBlocked) throw Object.assign(new Error(`Blocked tags: ${blocked.join(', ')}.`), { noRetry: true });
       const network = options.skipLarge && options.largeOnWifi ? await this.network(true) : { wifi: false };
@@ -167,8 +172,9 @@ class DownloadQueue extends EventEmitter {
           fs.copyFileSync(path.join(job.directory, firstPage.name), path.join(job.directory, job.thumbnail));
         }
       } else job.thumbnail = firstPage?.name || null;
-      job.status = 'complete'; job.error = null;
+      job.status = 'complete'; job.error = null; job.completedAt = new Date().toISOString();
       writeJson(path.join(job.directory, 'content.json'), this.manifest(job)); this.save();
+      this.emit('complete', job.directory);
     } catch (error) {
       // All concurrent writers settle before reporting an internal worker failure.
       if (!['paused', 'cancelled', 'queued', 'waiting'].includes(job.status)) {
@@ -223,6 +229,7 @@ class DownloadQueue extends EventEmitter {
   manifest(job) {
     return { schemaVersion: 1, site: job.site, sourceId: job.sourceId, url: job.url, title: job.title,
       tags: job.tags || [], status: job.status, pages: job.total, thumbnail: job.thumbnail || null,
+      createdAt: job.createdAt, completedAt: job.completedAt || null, uploadedAt: job.uploadedAt || 0,
       files: [...job.files].sort((a, b) => a.index - b.index) };
   }
 }

@@ -47,7 +47,12 @@ function render(state) {
   document.body.classList.toggle('loading', state.loading);
   $('source-panel').hidden = state.panel !== 'sources'; $('queue-panel').hidden = state.panel !== 'queue';
   $('settings-panel').hidden = state.panel !== 'settings';
-  $('heading').textContent = state.panel === 'settings' ? 'Settings' : state.panel === 'queue' ? 'Downloads' : 'Browser';
+  $('library-panel').hidden = state.panel !== 'library';
+  $('address-form').hidden = state.panel === 'library'; $('library-search').hidden = state.panel !== 'library';
+  $('login').hidden = state.panel === 'library';
+  for (const id of ['forward','reload','download']) $(id).hidden = state.panel === 'library';
+  $('heading').textContent = state.panel === 'library' ? 'Library' : state.panel === 'settings' ? 'Settings' : state.panel === 'queue' ? 'Downloads' : 'Browser';
+  window.libraryUI?.render(state);
   renderSettings(state);
   if (document.activeElement !== $('address')) $('address').value = state.url;
   $('folder-path').textContent = state.downloadRoot;
@@ -55,7 +60,7 @@ function render(state) {
   $('start-all').disabled = state.queueRunning;
   $('forward').disabled = !state.canForward; $('reload').disabled = !state.url;
   $('download').disabled = !state.gallery || state.panel !== 'browser';
-  const status = state.error || state.notice || (state.panel === 'settings' ? 'Download preferences' : state.loading ? 'Loading…' : state.gallery ? 'Gallery ready to download' : state.panel === 'browser' ? 'Double-click a gallery to download' : 'Choose a source');
+  const status = state.error || state.notice || (state.panel === 'library' ? 'Double-click a book to select it · Esc to go back' : state.panel === 'settings' ? 'Download preferences' : state.loading ? 'Loading…' : state.gallery ? 'Gallery ready to download' : state.panel === 'browser' ? 'Double-click a gallery to download' : 'Choose a source');
   $('status').textContent = status; $('status').title = status; $('status').classList.toggle('error', Boolean(state.error));
   if (!$('site-list').children.length) state.sites.forEach((site, i) => {
     const item = button('', () => api.navigate(site.url)); item.className = 'site';
@@ -91,6 +96,7 @@ $('address-form').onsubmit = event => { event.preventDefault(); const value = $(
 $('sources').onclick = () => run(() => api.panel(current?.panel === 'sources' && current.url ? 'browser' : 'sources'));
 $('queue').onclick = () => run(() => api.panel(current?.panel === 'queue' ? 'browser' : 'queue'));
 $('settings').onclick = () => run(() => current?.panel === 'settings' ? api.command('back') : api.panel('settings'));
+$('library').onclick = () => run(() => api.panel('library'));
 for (const command of ['back', 'forward', 'reload', 'login', 'pause-all', 'start-all']) $(command).onclick = () => run(() => api.command(command));
 $('download').onclick = () => run(() => api.enqueue());
 $('choose-folder').onclick = () => run(() => api.chooseFolder());

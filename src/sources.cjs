@@ -70,13 +70,13 @@ function createSources({ session, fetch = session.fetch.bind(session), createRea
       });
       const data = JSON.parse(raw).gmetadata?.[0];
       if (data && !data.error) metadata = { ...metadata, title: data.title || first.title, tags: data.tags || first.tags,
-        thumbnail: data.thumb || null, sizeBytes: Number(data.filesize) || first.sizeBytes, expectedPages: Number(data.filecount) || first.expectedPages };
+        thumbnail: data.thumb || null, uploadedAt: Number(data.posted) * 1000 || 0, sizeBytes: Number(data.filesize) || first.sizeBytes, expectedPages: Number(data.filecount) || first.expectedPages };
     } catch (error) { if (signal.aborted) throw error; /* HTML metadata remains usable. */ }
     return metadata;
   }
 
   function hitomiMetadata(info) {
-    return { title: info.title || `Hitomi ${info.id}`, expectedPages: info.files.length,
+    return { title: info.title || `Hitomi ${info.id}`, uploadedAt: Date.parse(info.date) || 0, expectedPages: info.files.length,
       tags: [...(info.tags || []).map(t => t.tag), ...(info.artists || []).map(a => `artist:${a.artist}`),
         ...(info.language ? [`language:${info.language}`] : [])] };
   }

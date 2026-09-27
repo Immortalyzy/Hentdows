@@ -1,0 +1,52 @@
+const {app}=require('electron');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {setTimeout:delay}=require('node:timers/promises');
+const {createApplication}=require('../src/main.cjs');
+const root=path.resolve('artifacts',`library-smoke-${Date.now()}`),downloads=path.join(root,'downloads');
+fs.mkdirSync(downloads,{recursive:true});app.setPath('userData',root);app.disableHardwareAcceleration();
+const titles=['Winter Letters','The Observatory','A Journey Home','Quiet Mornings','Beyond the Garden','Moonlight Sketches'];
+for(let i=1;i<=75;i++){
+  const folder=path.join(downloads,'ehentai',String(i));fs.mkdirSync(folder,{recursive:true});
+  const png=fs.readFileSync(path.resolve('src/assets',`missing-${['ehentai','exhentai','hitomi'][i%3]}.png`));
+  for(const name of ['1.png','2.png'])fs.writeFileSync(path.join(folder,name),png);
+  fs.writeFileSync(path.join(folder,'content.json'),JSON.stringify({schemaVersion:1,status:'complete',title:`${titles[(i-1)%titles.length]} · Volume ${i}`,sourceId:String(i),site:'ehentai',url:`https://e-hentai.org/g/${i}/key/`,tags:[`artist:Studio ${i%8}`,'language:english',`parody:Series ${i%4}`],createdAt:new Date(1700000000000+i*86400000).toISOString(),files:[{name:'1.png',bytes:png.length,index:0},{name:'2.png',bytes:png.length,index:1}]}));
+}
+fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({downloadRoot:downloads}));
+async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;await delay(30);}throw new Error('Library smoke timed out');}
+app.whenReady().then(async()=>{
+  const instance=await createApplication({show:false,offscreen:true,dataPath:root});const {win,library,libraryReady}=instance;
+  const js=code=>win.webContents.executeJavaScript(code),errors=[];win.webContents.on('console-message',(_e,_l,message)=>{if(/error|not defined/i.test(message))errors.push(message);});
+  await libraryReady;await until(()=>js('document.querySelectorAll(".book").length===60'));
+  assert.equal(await js('document.querySelector("#library-total").textContent.includes("75 books")'),true);
+  await until(()=>js('[...document.querySelectorAll(".book-cover")].slice(0,4).every(i=>i.complete&&i.naturalWidth>0)'));
+  await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true}).then(i=>fs.writeFileSync(path.join(root,'library-list.png'),i.toPNG()));
+  await js('document.getElementById("library-next").click()');await until(()=>js('document.querySelectorAll(".book").length===15'));
+  await js('document.getElementById("library-prev").click()');await until(()=>js('document.querySelectorAll(".book").length===60'));
+  await js('document.getElementById("library-view").value="grid3";document.getElementById("library-view").dispatchEvent(new Event("change"))');await delay(200);
+  await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true}).then(i=>fs.writeFileSync(path.join(root,'library-grid.png'),i.toPNG()));
+  await js('document.getElementById("book-search").value="winter";document.getElementById("book-search").dispatchEvent(new Event("input"))');await until(()=>js('document.querySelectorAll(".book").length===13'));
+  await js('document.querySelector(".book .book-bottom button").click()');await until(async()=> (await library.call('query',{favourite:1})).total===1);
+  const id=(await library.call('query',{favourite:1})).books[0].id;
+  await js(`document.querySelector('.book[data-id="${id}"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);await until(()=>js('!document.getElementById("library-selection").hidden'));
+  await js('document.getElementById("library-action").value="rate";document.getElementById("library-action").dispatchEvent(new Event("change"))');await until(()=>js('document.getElementById("library-dialog").open'));
+  await js('[...document.querySelectorAll("#library-dialog-content button")].find(b=>b.textContent==="★★★★").click()');await until(async()=> (await library.call('get',id)).rating===4);
+  await js('document.getElementById("library-deselect").click()');await js(`document.querySelector('.book[data-id="${id}"]').click()`);await until(()=>js('document.getElementById("library-dialog-content").textContent.includes("Read from beginning")'));
+  await js('[...document.querySelectorAll("#library-dialog-content button")].find(b=>b.textContent==="Read").click()');await until(async()=> (await library.call('get',id)).reads===1);
+  assert.equal((await library.call('get',id)).progress,.5);
+  await js('[...document.querySelectorAll(".reader-controls button")].find(b=>b.textContent==="→").click()');await until(async()=> (await library.call('get',id)).progress===1);
+  win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});await until(()=>js('!document.getElementById("library-dialog").open'));
+  await js('document.getElementById("library-filters").click()');await delay(100);
+  await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true}).then(i=>fs.writeFileSync(path.join(root,'library-filters.png'),i.toPNG()));
+  await js('document.getElementById("library-dialog-close").click()');
+  await js('document.getElementById("library-clear").click()');await until(()=>js('document.querySelectorAll(".book").length===60'));
+  const group=await library.call('group',{action:'save',name:'Weekend shelf'});await library.call('group',{action:'assign',id:group,ids:[id]});
+  await js('document.getElementById("library-grouping").value="custom";document.getElementById("library-grouping").dispatchEvent(new Event("change"))');await until(()=>js('document.querySelectorAll(".library-group").length===2'));
+  await js('[...document.querySelectorAll(".library-group")].find(b=>b.textContent.includes("Weekend shelf")).click()');await until(()=>js('document.querySelectorAll(".book").length===1'));
+  assert.equal(await js('document.querySelector(".book").dataset.id'),String(id));
+  const safe=await js('fetch("hentdows://app/library/999999/cover").then(r=>r.status)');assert.equal(safe,404);
+  assert.equal(await js('typeof require'), 'undefined');
+  win.setSize(390,600);await delay(100);assert.equal(await js('document.documentElement.scrollWidth<=innerWidth'),true);
+  assert.deepEqual(errors.filter(e=>!e.includes('404')),[]);
+  await library.call('export',{file:path.join(root,'backup.sqlite')});assert.ok(fs.statSync(path.join(root,'backup.sqlite')).size>0);
+  console.log(`Library smoke passed: ${root}`);await library.close();win.close();app.quit();
+}).catch(e=>{console.error(e);app.exit(1);});
