@@ -19,8 +19,12 @@ function parseEhGallery(html, gallery) {
   if (lastPage > 5000) throw new Error('Gallery pagination exceeds the supported limit.');
   const length = $('#gdd tr').filter((_, el) => $(el).text().includes('Length:')).text().match(/(\d+)\s+pages/);
   const tags = $('#taglist a').map((_, el) => $(el).text().trim()).get();
+  const sizeText = $('#gdd tr').filter((_, el) => $(el).text().includes('File Size:')).text();
+  const size = sizeText.match(/([\d,.]+)\s*(KiB|MiB|GiB|KB|MB|GB|B)/i);
+  const units = { b: 1, kb: 1024, kib: 1024, mb: 1024 ** 2, mib: 1024 ** 2, gb: 1024 ** 3, gib: 1024 ** 3 };
+  const sizeBytes = size ? Number(size[1].replaceAll(',', '')) * units[size[2].toLowerCase()] : null;
   const mpv = $('#gmid a[href*="/mpv/"]').attr('href');
-  return { title, tags, expectedPages: length ? Number(length[1]) : null, pages: [...new Set(pages)], lastPage,
+  return { title, tags, sizeBytes, expectedPages: length ? Number(length[1]) : null, pages: [...new Set(pages)], lastPage,
     mpv: mpv ? new URL(mpv, gallery.url).href : null };
 }
 
@@ -33,7 +37,8 @@ function parseEhImage(html, pageUrl) {
   const token = ($('#loadfail').attr('onclick') || '').match(/nl\(['"]([^'"]+)['"]\)/)?.[1];
   const backup = new URL(pageUrl);
   if (token) backup.searchParams.set('nl', token);
-  return { url, backup: token ? backup.href : null };
+  const full = $('a[href*="fullimg"]').first().attr('href');
+  return { url, original: full ? imageUrl(new URL(full, pageUrl).href) : null, backup: token ? backup.href : null };
 }
 
 function parseMpv(html, baseUrl) {
@@ -41,7 +46,7 @@ function parseMpv(html, baseUrl) {
   const scripts = $('script').map((_, e) => $(e).html()).get().join('\n');
   const read = name => scripts.match(new RegExp(`(?:var|let|const)\\s+${name}\\s*=\\s*([^;]+);`))?.[1];
   try {
-    const gid = Number(read('gid'));
+    const gid = Number(JSON.parse(read('gid')));
     const key = JSON.parse(read('mpvkey'));
     const images = JSON.parse(read('imagelist'));
     const api = new URL(JSON.parse(read('api_url')), baseUrl).href;

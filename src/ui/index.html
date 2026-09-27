@@ -9,7 +9,7 @@
 </head>
 <body>
   <header>
-    <div class="toolbar"><button id="sources" class="icon" title="Sources" aria-label="Sources">☰</button><h1 id="heading">Browser</h1><button id="login" title="Sign in to E-hentai / ExHentai">Sign in</button><button id="queue" class="icon" title="Download queue" aria-label="Download queue">⇩<span id="count">0</span></button></div>
+    <div class="toolbar"><button id="sources" class="icon" title="Sources" aria-label="Sources">☰</button><h1 id="heading">Browser</h1><button id="login" title="Sign in to E-hentai / ExHentai">Sign in</button><button id="settings" class="icon" title="Settings" aria-label="Settings">⚙</button><button id="queue" class="icon" title="Download queue" aria-label="Download queue">⇩<span id="count">0</span></button></div>
     <form id="address-form"><span class="address-mark">↗</span><input id="address" type="text" aria-label="Website address" placeholder="Enter a supported website address" spellcheck="false"><button type="submit" title="Go">Go</button></form>
   </header>
   <main>
@@ -21,9 +21,14 @@
       <div class="folder"><span>DOWNLOAD FOLDER</span><p id="folder-path"></p><button id="choose-folder">Choose folder</button></div>
     </section>
     <section id="queue-panel" hidden>
-      <div class="queue-heading"><div><p class="eyebrow">SAVED FOR LATER</p><h2>Download queue</h2></div><button id="pause-all">Pause all</button></div>
+      <div class="queue-heading"><div><p class="eyebrow">SAVED FOR LATER</p><h2>Download queue</h2></div><div class="queue-controls"><button id="start-all">Start queue</button><button id="pause-all">Pause all</button></div></div>
       <div id="jobs"></div>
       <p class="queue-note">Downloads paused by closing the app can be resumed here. Completed pages are kept when you retry.</p>
+    </section>
+    <section id="settings-panel" hidden>
+      <div class="settings-heading"><p class="eyebrow">SETTINGS</p><h2>Downloader</h2><p>Preferences save automatically. Image options apply to the next download or retry; saved pages are kept.</p></div>
+      <div id="settings-fields"></div>
+      <p class="settings-footnote">Source-specific options for Kemono, Pawchive and Pixiv will become available when those sources are supported.</p>
     </section>
   </main>
   <footer><button id="back" class="icon" title="Back (Esc)" aria-label="Back">←</button><button id="forward" class="icon" title="Forward" aria-label="Forward">→</button><button id="reload" class="icon" title="Reload" aria-label="Reload">⟳</button><span id="status" role="status">Choose a source</span><button id="download" class="download" disabled title="Download this gallery" aria-label="Download this gallery">⇩</button></footer>

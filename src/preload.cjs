@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('hentdows', {
   chooseFolder: () => ipcRenderer.invoke('app:choose-folder'),
   openFolder: id => ipcRenderer.invoke('app:open-folder', id),
   panel: panel => ipcRenderer.invoke('app:panel', panel),
+  saveSettings: patch => ipcRenderer.invoke('app:save-settings', patch),
   subscribe: callback => { const listener = (_, state) => callback(state); ipcRenderer.on('app:changed', listener); return () => ipcRenderer.removeListener('app:changed', listener); }
 });

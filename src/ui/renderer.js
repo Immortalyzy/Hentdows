@@ -1,6 +1,39 @@
 const api = window.hentdows;
 const $ = id => document.getElementById(id);
 let current;
+function renderSettings(state) {
+  if (!$('settings-fields').children.length) {
+    let group;
+    for (const field of state.settingsSchema) {
+      if (field.group !== group) { group = field.group; if (group) $('settings-fields').append(element('h3', group, 'settings-group')); }
+      const row = element('label', null, `preference ${field.type === 'boolean' ? 'toggle-row' : ''}`);
+      const description = element('span', null, 'preference-description');
+      description.append(element('span', field.title, 'preference-title'));
+      if (field.summary) description.append(element('small', field.summary));
+      row.append(description);
+      const input = document.createElement(field.type === 'select' ? 'select' : 'input');
+      input.id = `setting-${field.key}`; input.setAttribute('aria-label', field.title);
+      if (field.type === 'select') for (const choice of field.choices) { const option = element('option', choice.label); option.value = String(choice.value); input.append(option); }
+      else input.type = field.type === 'boolean' ? 'checkbox' : field.type;
+      if (field.min != null) { input.min = field.min; input.max = field.max; input.step = 1; }
+      input.onchange = () => run(async () => {
+        let value = field.type === 'boolean' ? input.checked : field.type === 'number' ? Number(input.value) : input.value;
+        if (field.type === 'select') value = field.choices.find(c => String(c.value) === input.value).value;
+        if (!input.reportValidity()) return;
+        try { await api.saveSettings({ [field.key]: value }); }
+        catch (error) { renderSettings(current); throw error; }
+      });
+      row.append(input); $('settings-fields').append(row);
+    }
+  }
+  for (const field of state.settingsSchema) {
+    const input = $(`setting-${field.key}`), value = state.downloadSettings[field.key];
+    if (field.type === 'boolean') input.checked = value;
+    else if (document.activeElement !== input) input.value = value;
+    input.disabled = Boolean(field.depends && !state.downloadSettings[field.depends]);
+    input.closest('label').classList.toggle('disabled', input.disabled);
+  }
+}
 async function run(action) {
   try { return await action(); }
   catch (error) { $('status').textContent = error.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); $('status').title = $('status').textContent; $('status').classList.add('error'); }
@@ -13,13 +46,16 @@ function render(state) {
   current = state;
   document.body.classList.toggle('loading', state.loading);
   $('source-panel').hidden = state.panel !== 'sources'; $('queue-panel').hidden = state.panel !== 'queue';
-  $('heading').textContent = state.panel === 'queue' ? 'Downloads' : 'Browser';
+  $('settings-panel').hidden = state.panel !== 'settings';
+  $('heading').textContent = state.panel === 'settings' ? 'Settings' : state.panel === 'queue' ? 'Downloads' : 'Browser';
+  renderSettings(state);
   if (document.activeElement !== $('address')) $('address').value = state.url;
   $('folder-path').textContent = state.downloadRoot;
-  $('count').textContent = state.jobs.filter(j => ['queued', 'resolving', 'downloading'].includes(j.status)).length;
+  $('count').textContent = state.jobs.filter(j => ['queued', 'waiting', 'resolving', 'downloading'].includes(j.status)).length;
+  $('start-all').disabled = state.queueRunning;
   $('forward').disabled = !state.canForward; $('reload').disabled = !state.url;
   $('download').disabled = !state.gallery || state.panel !== 'browser';
-  const status = state.error || state.notice || (state.loading ? 'Loading…' : state.gallery ? 'Gallery ready to download' : state.panel === 'browser' ? 'Double-click a gallery to download' : 'Choose a source');
+  const status = state.error || state.notice || (state.panel === 'settings' ? 'Download preferences' : state.loading ? 'Loading…' : state.gallery ? 'Gallery ready to download' : state.panel === 'browser' ? 'Double-click a gallery to download' : 'Choose a source');
   $('status').textContent = status; $('status').title = status; $('status').classList.toggle('error', Boolean(state.error));
   if (!$('site-list').children.length) state.sites.forEach((site, i) => {
     const item = button('', () => api.navigate(site.url)); item.className = 'site';
@@ -28,7 +64,7 @@ function render(state) {
     item.append(info, element('span', '›', 'site-arrow')); $('site-list').append(item);
   });
   // Keep focused controls in place between browser loading events.
-  const signature = JSON.stringify(state.jobs);
+  const signature = JSON.stringify([state.queueRunning, state.jobs]);
   if ($('jobs').dataset.signature === signature) return;
   $('jobs').dataset.signature = signature; $('jobs').replaceChildren();
   if (!state.jobs.length) {
@@ -36,14 +72,16 @@ function render(state) {
     empty.append(element('div', '⇩', 'empty-icon'), element('h3', 'Your queue is empty'), element('p', 'Open a gallery and use the download button, or double-click a gallery link.'));
     $('jobs').append(empty);
   }
-  for (const job of [...state.jobs].reverse()) {
+  const finished = job => ['complete', 'cancelled'].includes(job.status);
+  for (const job of [...state.jobs.filter(j => !finished(j)), ...state.jobs.filter(finished).reverse()]) {
     const row = element('article', null, 'job'); row.append(element('h3', job.title));
     const detail = element('div', null, 'detail'); detail.append(element('span', `${job.site} · ${job.status}`), element('span', `${job.completed} / ${job.total || '—'} pages`)); row.append(detail);
     const progress = element('progress'); progress.max = job.total || 1; progress.value = job.completed; progress.setAttribute('aria-label', 'Download progress'); row.append(progress);
     if (job.error) row.append(element('p', job.error));
+    if (job.waitReason) row.append(element('p', job.waitReason, 'wait-reason'));
     const actions = element('div', null, 'job-actions');
-    if (['queued', 'resolving', 'downloading'].includes(job.status)) actions.append(button('Pause', () => api.queueAction(job.id, 'pause')));
-    if (['paused', 'error', 'cancelled'].includes(job.status)) actions.append(button(job.status === 'error' ? 'Retry' : 'Resume', () => api.queueAction(job.id, 'resume')));
+    if (['queued', 'waiting', 'resolving', 'downloading'].includes(job.status)) actions.append(button('Pause', () => api.queueAction(job.id, 'pause')));
+    if (['paused', 'error', 'cancelled'].includes(job.status) || (job.status === 'queued' && !state.queueRunning)) actions.append(button(job.status === 'error' ? 'Retry' : 'Resume', () => api.queueAction(job.id, 'resume')));
     if (!['complete', 'cancelled'].includes(job.status)) actions.append(button('Cancel', () => api.queueAction(job.id, 'cancel')));
     if (job.completed) actions.append(button('Show files', () => api.openFolder(job.id)));
     row.append(actions); $('jobs').append(row);
@@ -52,7 +90,8 @@ function render(state) {
 $('address-form').onsubmit = event => { event.preventDefault(); const value = $('address').value.trim(); run(() => api.navigate(value.includes('://') ? value : `https://${value}`)); };
 $('sources').onclick = () => run(() => api.panel(current?.panel === 'sources' && current.url ? 'browser' : 'sources'));
 $('queue').onclick = () => run(() => api.panel(current?.panel === 'queue' ? 'browser' : 'queue'));
-for (const command of ['back', 'forward', 'reload', 'login', 'pause-all']) $(command).onclick = () => run(() => api.command(command));
+$('settings').onclick = () => run(() => current?.panel === 'settings' ? api.command('back') : api.panel('settings'));
+for (const command of ['back', 'forward', 'reload', 'login', 'pause-all', 'start-all']) $(command).onclick = () => run(() => api.command(command));
 $('download').onclick = () => run(() => api.enqueue());
 $('choose-folder').onclick = () => run(() => api.chooseFolder());
 api.subscribe(render);

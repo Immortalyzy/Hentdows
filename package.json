@@ -1,6 +1,6 @@
 {
   "name": "hentdows",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
   "license": "Apache-2.0",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "smoke": "electron scripts/smoke.cjs",
-    "package": "electron-packager . Hentdows --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/(Hentoid|test|docs|scripts|artifacts|\\.npm-cache|\\.git)(/|$)\""
+    "smoke:network": "electron scripts/network-smoke.cjs",
+    "package": "electron-packager . Hentdows --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/(Hentoid|test|docs|scripts|artifacts|dist|\\.npm-cache|\\.git)(/|$)\""
   },
   "engines": {
     "node": ">=22.12"

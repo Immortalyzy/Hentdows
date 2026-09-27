@@ -32,7 +32,8 @@ function imageUrl(value) {
   const u = new URL(value);
   const h = u.hostname.toLowerCase();
   // E-H images can live on public H@H hosts, so an exact CDN allowlist is not possible.
-  if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password || u.port
+  const hathHost = h.endsWith('.hath.network');
+  if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password || (u.port && !hathHost)
       || !h.includes('.') || h.endsWith('.local') || h.endsWith('.localhost')
       || h === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(h) || h.includes(':')) {
     throw new Error('The source returned an unsupported image address.');

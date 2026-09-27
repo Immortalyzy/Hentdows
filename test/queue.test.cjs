@@ -6,6 +6,7 @@ const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
 const { DownloadQueue } = require('../src/queue.cjs');
 const { writeJson, readJson } = require('../src/storage.cjs');
+const { DEFAULT_DOWNLOADS } = require('../src/settings.cjs');
 
 function setup(t, overrides = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hentdows-test-'));
@@ -40,10 +41,104 @@ test('pause aborts an active transfer; resume keeps completed pages', async t =>
     return new Response('image', { headers: { 'content-type': 'image/jpeg' } });
   } });
   const id = queue.enqueue('https://exhentai.org/g/42/key/', root);
-  await until(() => count === 2); queue.action(id, 'pause'); await until(() => !queue.active);
+  await until(() => count === 2 && queue.jobs[0].completed === 1); queue.action(id, 'pause'); await until(() => !queue.active);
   assert.equal(queue.jobs[0].status, 'paused'); assert.equal(queue.jobs[0].completed, 1);
   queue.action(id, 'resume'); await until(() => !queue.active);
   assert.equal(queue.jobs[0].status, 'complete'); assert.equal(count, 3);
+});
+
+test('autostart off holds jobs and top insertion changes actual processing order', async t => {
+  const order = [];
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, autoStart: false, newPosition: 'top' }), resolveGallery: async gallery => { order.push(gallery.id); return { title: gallery.id, pages: [0] }; } });
+  queue.enqueue('https://e-hentai.org/g/1/key/', root); queue.enqueue('https://e-hentai.org/g/2/key/', root);
+  await delay(20); assert.equal(queue.active, null); assert.deepEqual(order, []);
+  queue.startAll(); await until(() => queue.jobs.every(j => j.status === 'complete'));
+  assert.deepEqual(order, ['2', '1']);
+  await until(() => !queue.running);
+  queue.enqueue('https://e-hentai.org/g/3/key/', root); await delay(20);
+  assert.equal(queue.active, null); assert.deepEqual(order, ['2', '1']);
+});
+
+test('transfer failure waits for concurrent partial-file cleanup before reporting error', async t => {
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, parallel: 2 }), fetchImage: async url => {
+    if (url.endsWith('/0.png')) { await delay(30); return new Response(null, { status: 500 }); }
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(1024)); } }), { headers: { 'content-type': 'image/png' } });
+  } });
+  queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+  assert.equal(queue.jobs[0].status, 'error');
+  assert.equal(fs.readdirSync(queue.jobs[0].directory).some(name => name.endsWith('.part')), false);
+});
+
+test('size threshold stops oversized transfers and removes incomplete pages', async t => {
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, skipLarge: true, maxSizeMB: 0.001 }), fetchImage: async () => new Response(new Uint8Array(10240), { headers: { 'content-type': 'image/png' } }) });
+  queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+  assert.match(queue.jobs[0].error, /size threshold/); assert.equal(queue.jobs[0].completed, 0);
+  assert.equal(fs.readdirSync(queue.jobs[0].directory).some(name => name.endsWith('.part')), false);
+});
+
+test('schedule and Wi-Fi gates resume waiting jobs only when both conditions allow', async t => {
+  let hour = 12, wifi = false;
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, scheduleEnabled: true, scheduleStart: '23:00', scheduleEnd: '06:00', wifiOnly: true }), now: () => new Date(2026, 8, 27, hour), network: async () => ({ online: true, wifi }) });
+  queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+  assert.match(queue.jobs[0].waitReason, /scheduled/);
+  hour = 23; await queue.tick(); await until(() => !queue.active); assert.match(queue.jobs[0].waitReason, /Wi-Fi/);
+  wifi = true; await queue.tick(); await until(() => !queue.active); assert.equal(queue.jobs[0].status, 'complete');
+});
+
+test('tag policies reject, queue as error, or require a second explicit request', async t => {
+  let behaviour = 'reject';
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, blockedTags: 'artist:test', blockedBehaviour: behaviour }), getMetadata: async () => ({ title: 'blocked', tags: ['artist:test'] }) });
+  await assert.rejects(queue.add('https://e-hentai.org/g/1/key/', root), /was not queued/); assert.equal(queue.jobs.length, 0);
+  behaviour = 'error'; await queue.add('https://e-hentai.org/g/2/key/', root); assert.equal(queue.jobs[0].status, 'error');
+  behaviour = 'confirm'; await assert.rejects(queue.add('https://e-hentai.org/g/3/key/', root), /again/);
+  await queue.add('https://e-hentai.org/g/3/key/', root); await until(() => !queue.active);
+  assert.equal(queue.jobs[1].status, 'complete');
+});
+
+test('large-gallery page policy can be overridden on Wi-Fi', async t => {
+  let wifi = false, transfers = 0;
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, skipLarge: true, maxPages: 1, largeOnWifi: true }), network: async () => ({ online: true, wifi }), fetchImage: async () => { transfers++; return new Response('image', { headers: { 'content-type': 'image/png' } }); } });
+  const id = queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+  assert.equal(transfers, 0); assert.match(queue.jobs[0].error, /Skipped large/);
+  wifi = true; queue.action(id, 'resume'); await until(() => !queue.active); assert.equal(queue.jobs[0].status, 'complete');
+});
+
+test('404 policies distinguish errors, marked placeholder images, and omitted pages', async t => {
+  for (const mode of ['error', 'placeholder', 'ignore']) {
+    const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, http404: mode }), fetchImage: async () => new Response(null, { status: 404 }) });
+    queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+    const job = queue.jobs[0];
+    assert.equal(job.status, mode === 'error' ? 'error' : 'complete');
+    if (mode !== 'error') assert.equal(job.files.every(f => mode === 'ignore' ? f.ignored && !f.name : f.placeholder && fs.existsSync(path.join(job.directory, f.name))), true);
+  }
+});
+
+test('retry preference controls retry count; quota failures are not retried', async t => {
+  let attempts = 0, retry = false, status = 500;
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, retriesEnabled: retry, retryCount: 2 }), sleep: async () => {}, resolveGallery: async () => ({ title: 'one', pages: [0] }), fetchImage: async () => { attempts++; return new Response(null, { status }); } });
+  const id = queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+  assert.equal(attempts, 1);
+  retry = true; queue.action(id, 'resume'); await until(() => !queue.active); assert.equal(attempts, 4);
+  status = 509; queue.action(id, 'resume'); await until(() => !queue.active); assert.equal(attempts, 5);
+});
+
+test('parallel workers honor configured concurrency', async t => {
+  let simultaneous = 0, peak = 0;
+  const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, parallel: 2 }), resolveGallery: async () => ({ title: 'many', pages: [0, 1, 2, 3, 4] }), fetchImage: async (_, __, signal) => {
+    simultaneous++; peak = Math.max(peak, simultaneous); await delay(20, null, { signal }); simultaneous--;
+    return new Response('image', { headers: { 'content-type': 'image/png' } });
+  } });
+  queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active); assert.equal(peak, 2); assert.equal(queue.jobs[0].completed, 5);
+});
+
+test('thumbnail preference stores a separate file or references page one', async t => {
+  for (const separateThumbnail of [true, false]) {
+    const { queue, root } = setup(t, { getSettings: () => ({ ...DEFAULT_DOWNLOADS, separateThumbnail }) });
+    queue.enqueue('https://e-hentai.org/g/1/key/', root); await until(() => !queue.active);
+    const job = queue.jobs[0], manifest = readJson(path.join(job.directory, 'content.json'));
+    assert.equal(manifest.thumbnail, separateThumbnail ? 'thumbnail.png' : '00001.png');
+    assert.ok(fs.existsSync(path.join(job.directory, manifest.thumbnail)));
+  }
 });
 
 test('HTTP failures remain retryable and do not create complete books', async t => {

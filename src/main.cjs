@@ -6,13 +6,18 @@ const { SITES, galleryFromUrl, allowedNavigation } = require('./sites.cjs');
 const { readJson, writeJson } = require('./storage.cjs');
 const { DownloadQueue } = require('./queue.cjs');
 const { createSources } = require('./sources.cjs');
+const { createSessionFetch } = require('./session-fetch.cjs');
+const { SETTINGS, validateDownloads } = require('./settings.cjs');
+const { createNetworkProbe } = require('./network.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'hentdows', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
-async function createApplication({ show = true, offscreen = false, dataPath = app.getPath('userData'), sourceFactory = createSources } = {}) {
+async function createApplication({ show = true, offscreen = false, dataPath = app.getPath('userData'), sourceFactory = createSources, networkProbe } = {}) {
   fs.mkdirSync(dataPath, { recursive: true });
   const settingsFile = path.join(dataPath, 'settings.json');
   const settings = readJson(settingsFile, { downloadRoot: path.join(app.getPath('downloads'), 'Hentdows') });
+  settings.downloads = validateDownloads(settings.downloads || {});
+  const getSettings = () => settings.downloads;
   if (!(await protocol.isProtocolHandled('hentdows'))) {
     protocol.handle('hentdows', request => {
       const url = new URL(request.url);
@@ -39,12 +44,15 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   const remotePreferences = { session: browserSession, sandbox: true, contextIsolation: true, nodeIntegration: false, offscreen };
   const browser = new WebContentsView({ webPreferences: { ...remotePreferences, preload: path.join(__dirname, 'browser-preload.cjs') } });
   win.contentView.addChildView(browser);
-  let panel = 'sources', error = '', notice = '', quitting = false;
-  const sources = sourceFactory({ session: browserSession, createReader: () => {
+  let panel = 'sources', settingsReturnPanel = 'sources', error = '', notice = '', quitting = false;
+  const sources = sourceFactory({ session: browserSession, fetch: createSessionFetch(browserSession), getSettings, createReader: () => {
     const view = new WebContentsView({ webPreferences: remotePreferences });
     guard(view.webContents); return view.webContents;
   } });
-  const queue = new DownloadQueue({ file: path.join(dataPath, 'queue.json'), ...sources });
+  const probe = networkProbe || createNetworkProbe(() => net.isOnline());
+  const queue = new DownloadQueue({ file: path.join(dataPath, 'queue.json'), ...sources, getSettings,
+    network: needWifi => needWifi ? probe() : Promise.resolve({ online: offscreen || net.isOnline(), wifi: null }) });
+  const policyTimer = setInterval(() => queue.tick().catch(e => { error = e.message; publish(); }), 15000);
   const wc = browser.webContents;
   function guard(contents) {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -67,6 +75,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   function state() {
     const url = wc.isDestroyed() ? '' : wc.getURL();
     return { sites: SITES, panel, url, gallery: galleryFromUrl(url), downloadRoot: settings.downloadRoot,
+      downloadSettings: settings.downloads, settingsSchema: SETTINGS, queueRunning: queue.running,
       jobs: queue.snapshot(), error, notice, loading: !wc.isDestroyed() && wc.isLoading(),
       canBack: !wc.isDestroyed() && wc.navigationHistory.canGoBack(), canForward: !wc.isDestroyed() && wc.navigationHistory.canGoForward() };
   }
@@ -77,13 +86,20 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     try { await wc.loadURL(url); } catch (e) { if (e.code !== 'ERR_ABORTED') { error = e.message; publish(); } }
   }
   function back() {
-    if (panel !== 'browser') panel = wc.getURL() ? 'browser' : 'sources';
+    if (panel === 'settings') panel = settingsReturnPanel;
+    else if (panel !== 'browser') panel = wc.getURL() ? 'browser' : 'sources';
     else if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
     else panel = 'sources';
     layout(); publish();
   }
-  function enqueue(url) {
-    const id = queue.enqueue(url, settings.downloadRoot);
+  async function enqueue(url) {
+    let position = settings.downloads.newPosition;
+    if (position === 'ask') {
+      const result = await dialog.showMessageBox(win, { type: 'question', title: 'New downloads position', message: 'Where should this gallery be added?', buttons: ['Top', 'Bottom', 'Cancel'], defaultId: 1, cancelId: 2 });
+      if (result.response === 2) return null;
+      position = result.response === 0 ? 'top' : 'bottom';
+    }
+    const id = await queue.add(url, settings.downloadRoot, position);
     notice = 'Gallery is in the download queue.'; error = ''; publish(); return id;
   }
   for (const contents of [wc, win.webContents]) contents.on('before-input-event', (event, input) => {
@@ -93,19 +109,28 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   wc.on('did-fail-load', (_, code, description, url, mainFrame) => { if (mainFrame && code !== -3) { error = `${description}. Check your connection or login.`; publish(); } });
   for (const event of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated']) wc.on(event, publish);
   queue.on('change', publish);
+  queue.on('problem', message => { error = message; publish(); });
   win.on('resize', layout);
   const handlers = {
     'app:state': () => state(),
     'app:navigate': (_, url) => navigate(url),
     'app:panel': (_, value) => {
-      if (!['sources', 'browser', 'queue'].includes(value)) throw new Error('Unknown panel.');
+      if (!['sources', 'browser', 'queue', 'settings'].includes(value)) throw new Error('Unknown panel.');
+      if (value === 'settings' && panel !== 'settings') settingsReturnPanel = panel;
       panel = value === 'browser' && !wc.getURL() ? 'sources' : value; layout(); publish();
+    },
+    'app:save-settings': async (_, patch) => {
+      const updated = validateDownloads(patch, settings.downloads);
+      writeJson(settingsFile, { ...settings, downloads: updated });
+      settings.downloads = updated; notice = 'Download settings saved.'; error = ''; publish();
+      await queue.tick(); return updated;
     },
     'app:command': (_, command) => {
       if (command === 'back') back();
       else if (command === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
       else if (command === 'reload') wc.reload();
       else if (command === 'pause-all') queue.pauseAll();
+      else if (command === 'start-all') queue.startAll();
       else if (command === 'login') return navigate('https://forums.e-hentai.org/index.php?act=Login&CODE=00');
     },
     'app:enqueue': () => enqueue(wc.getURL()),
@@ -137,7 +162,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   }
   win.on('close', () => {
     if (quitting) return; quitting = true;
-    queue.pauseAll();
+    clearInterval(policyTimer); queue.close();
     for (const name of Object.keys(handlers)) ipcMain.removeHandler(name);
     for (const [name, handler] of remoteHandlers) ipcMain.removeListener(name, handler);
     if (!wc.isDestroyed()) wc.close();

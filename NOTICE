@@ -12,4 +12,10 @@ in JavaScript for Chromium sessions and a streaming Windows download queue.
 The browser layout and colors draw from activity_browser.xml and
 values/colors-palette.xml. This is an independent Windows port.
 
+Downloader settings adapt res/xml/preferences.xml, res/values/strings_settings.xml,
+and res/values/donottranslate.xml. The PNG icons in src/assets/missing-*.png are
+rasterized, recolored copies of Hentoid's drawable/ic_site_ehentai.xml,
+drawable/ic_site_exhentai.xml, and drawable/ic_site_hitomi.xml, for HTTP 404
+placeholders. scripts/render-placeholders.cjs reproduces those conversions.
+
 Original copyright and license notices remain in the reference source tree.

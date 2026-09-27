@@ -13,6 +13,8 @@ test('canonical gallery identities include source and ignore pagination/fragment
   assert.equal(allowedNavigation('https://forums.e-hentai.org/index.php?act=Login'), true);
   assert.equal(allowedNavigation('javascript:alert(1)'), false);
   assert.throws(() => imageUrl('http://127.0.0.1/x'));
+  assert.equal(imageUrl('https://abc.def.hath.network:50443/h/AbC?token=X'), 'https://abc.def.hath.network:50443/h/AbC?token=X');
+  for (const value of ['https://hath.network.evil.test:50443/x', 'https://images.example.org:8000/x', 'http://localhost:50443/x']) assert.throws(() => imageUrl(value));
 });
 
 test('classic galleries retain order, deduplicate thumbnails, and discover pagination', () => {
