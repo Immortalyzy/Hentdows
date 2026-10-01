@@ -6,6 +6,15 @@ const {LibraryStore,SORTS}=require('../src/library-store.cjs');
 const {Library}=require('../src/library.cjs');
 function fixture(t){const directory=fs.mkdtempSync(path.resolve('artifacts','library-test-'));const store=new LibraryStore(path.join(directory,'library.sqlite'));const root=store.addRoot(directory);t.after(()=>store.close());return {store,directory,root};}
 function book(root,id,extra={}){return {path:path.join(root.path,String(id)),root:root.id,signature:'1',title:`Book ${id}`,site:'ehentai',sourceId:String(id),url:`https://e-hentai.org/g/${id}/key/`,pages:2,size:200,downloaded:id*1000,finished:id*1000+1,uploaded:id*1000-1,files:[{name:'1.png',index:0,bytes:100},{name:'2.png',index:1,bytes:100}],cover:'1.png',tags:[],seen:1,...extra};}
+test('storage reconnection retains book identity and reading metadata; removal only affects its index',t=>{
+  const {store,directory,root}=fixture(t),other=store.addRoot(path.join(directory,'other')),id=store.index(book(root,7)),otherId=store.index(book(other,8));
+  store.update({ids:[id],patch:{favourite:true,rating:5}});store.read({id,page:1});
+  const changed=path.join(directory,'relocated');store.relocateRoot(root.id,changed);
+  const saved=store.get(id);assert.equal(saved.path,path.join(changed,'7'));assert.equal(saved.rating,5);assert.equal(saved.favourite,1);assert.equal(saved.last_page,1);
+  assert.equal(store.rootStats().find(r=>r.id===root.id).books,1);
+  const marks=store.browserMarks([{site:'exhentai',sourceId:'7',url:'https://exhentai.org/g/7/key/'}]);assert.equal(marks[0].downloaded,true);
+  store.removeRoot(root.id);assert.equal(store.query({}).total,1);assert.equal(store.get(otherId).source_id,'8');assert.equal(store.query({query:'Book 7'}).total,0);
+});
 test('library universal search matches literal title substrings, exact IDs and comma-separated attributes',t=>{
   const {store,root}=fixture(t);
   store.index(book(root,42,{title:'A 100% Winter Tale',tags:['artist:Alice','language:english','female:glasses']}));

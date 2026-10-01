@@ -58,6 +58,29 @@ class LibraryStore {
   sql(sql) { if (!this.statements.has(sql)) { if (this.statements.size > 250) this.statements.clear(); this.statements.set(sql, this.db.prepare(sql)); } return this.statements.get(sql); }
   transaction(fn) { if(this.db.isTransaction)return fn();this.db.exec('BEGIN'); try { const result = fn(); this.db.exec('COMMIT'); return result; } catch (e) { this.db.exec('ROLLBACK'); throw e; } }
   roots() { return this.sql('SELECT * FROM roots ORDER BY id').all(); }
+  rootStats() { return this.sql('SELECT r.*,count(b.id) books,coalesce(sum(b.size),0) bytes FROM roots r LEFT JOIN books b ON b.root=r.id GROUP BY r.id ORDER BY r.id').all(); }
+  removeRoot(id) {
+    return this.transaction(()=>{
+      const root=this.roots().find(r=>r.id===id);if(!root)throw new Error('Storage location not found.');
+      this.sql('DELETE FROM search WHERE rowid IN (SELECT id FROM books WHERE root=?)').run(id);
+      this.sql('DELETE FROM books WHERE root=?').run(id);this.sql('DELETE FROM roots WHERE id=?').run(id);
+    });
+  }
+  relocateRoot(id,directory) {
+    return this.transaction(()=>{
+      const root=this.roots().find(r=>r.id===id);if(!root)throw new Error('Storage location not found.');
+      for(const book of this.sql('SELECT id,path FROM books WHERE root=?').all(id))this.sql('UPDATE books SET path=? WHERE id=?').run(path.join(directory,path.relative(root.path,book.path)),book.id);
+      for(const item of this.sql('SELECT path FROM detached').all()){
+        const relative=path.relative(root.path,item.path);
+        if(relative&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative))this.sql('UPDATE detached SET path=? WHERE path=?').run(path.join(directory,relative),item.path);
+      }
+      this.sql('UPDATE roots SET path=? WHERE id=?').run(directory,id);
+    });
+  }
+  browserMarks(galleries) {
+    if(!Array.isArray(galleries)||galleries.length>300)throw new Error('Invalid page markers.');
+    return galleries.map(g=>{const book=this.findSource(g);return {url:g.url,downloaded:Boolean(book),tags:book?JSON.parse(this.sql('SELECT tags FROM books WHERE id=?').get(book.id).tags):[]};});
+  }
   findSource({site,sourceId}) { return ['ehentai','exhentai'].includes(site)?this.sql("SELECT id,path FROM books WHERE site IN ('ehentai','exhentai') AND source_id=? AND missing=0 LIMIT 1").get(String(sourceId)):this.sql('SELECT id,path FROM books WHERE site=? AND source_id=? AND missing=0 LIMIT 1').get(site,String(sourceId)); }
   duplicateCandidates({word,offset=0}) {
     word=norm(word).slice(0,200);if(word.length<2)return [];

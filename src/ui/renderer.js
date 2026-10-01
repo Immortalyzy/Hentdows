@@ -5,7 +5,7 @@ function renderSettings(state) {
   const section=$('settings-section').value;
   const schema=section==='downloads'?state.settingsSchema:state[section+'Schema'];
   const values=section==='downloads'?state.downloadSettings:state[section+'Settings'];
-  $('settings-title').textContent={downloads:'Downloader',library:'Library',viewer:'Viewer'}[section];
+  $('settings-title').textContent={downloads:'Downloader',browser:'Browser',library:'Library',viewer:'Viewer'}[section];
   $('settings-note').textContent=section==='viewer'?'Windows uses configurable keyboard shortcuts and Chromium image rendering. Hentdows downloads contain one chapter per book.':section==='downloads'?'Image options apply to the next download or retry; saved pages are kept.':'';
   if ($('settings-fields').dataset.section!==section) {
     $('settings-fields').dataset.section=section; $('settings-fields').replaceChildren();
@@ -27,13 +27,14 @@ function renderSettings(state) {
         let value = field.type === 'boolean' ? input.checked : field.type === 'number' ? Number(input.value) : input.value;
         if (field.type === 'select') value = field.choices.find(c => String(c.value) === input.value).value;
         if (!input.reportValidity()) return;
-        try { await (section==='downloads'?api.saveSettings({ [field.key]: value }):api.savePreferences(section,{ [field.key]: value })); }
+        try { await (section==='downloads'||section==='browser'&&field.key.startsWith('duplicate')?api.saveSettings({ [field.key]: value }):section==='browser'?api.saveBrowser({[field.key]:value}):api.savePreferences(section,{ [field.key]: value })); }
         catch (error) { renderSettings(current); throw error; }
       });
       row.append(input); $('settings-fields').append(row);
     }
   }
   if(section==='viewer'&&!$('reset-color')){const reset=button('Reset color filter',()=>api.savePreferences('viewer',{color:'#ffffff',colorOpacity:0}));reset.id='reset-color';$('settings-fields').append(reset);}
+  if(section==='browser'&&!$('browser-clear-actions')){const actions=element('div',null,'browser-actions');actions.id='browser-clear-actions';actions.append(button('Clear cookies…',()=>api.browser('clear-cookies')),button('Clear cache…',()=>api.browser('clear-cache')));$('settings-fields').append(actions);}
   for (const field of schema) {
     const input = $(`setting-${field.key}`), value = values[field.key];
     if (field.type === 'boolean') input.checked = value;
@@ -61,6 +62,7 @@ function render(state) {
   for (const id of ['forward','reload','download']) $(id).hidden = ['library','queue'].includes(state.panel);
   $('heading').textContent = state.panel === 'library' ? 'Library' : state.panel === 'settings' ? 'Settings' : state.panel === 'queue' ? 'Downloads' : 'Browser';
   window.libraryUI?.render(state);
+  window.browserUI?.render(state);
   renderSettings(state);
   if (document.activeElement !== $('address')) $('address').value = state.url;
   $('folder-path').textContent = state.downloadRoot;
@@ -71,7 +73,7 @@ function render(state) {
   const status = state.error || state.notice || (state.panel === 'library' ? 'Double-click a book to select it · Esc to go back' : state.panel === 'settings' ? 'Preferences' : state.loading ? 'Loading…' : state.gallery ? 'Gallery ready to download' : state.panel === 'browser' ? 'Double-click a gallery to download' : 'Choose a source');
   $('status').textContent = status; $('status').title = status; $('status').classList.toggle('error', Boolean(state.error));
   if (!$('site-list').children.length) state.sites.forEach((site, i) => {
-    const item = button('', () => api.navigate(site.url)); item.className = 'site';
+    const item = button('', () => api.browser('source',site.id)); item.className = 'site';
     item.append(element('span', ['E', 'Ex', 'H'][i], 'site-badge'));
     const info = element('span', null, 'site-info'); info.append(element('strong', site.name), element('small', new URL(site.url).hostname));
     item.append(info, element('span', '›', 'site-arrow')); $('site-list').append(item);

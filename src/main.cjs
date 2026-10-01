@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, shell, Menu, protocol, net, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, shell, Menu, protocol, net, powerSaveBlocker, nativeTheme } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -7,7 +7,9 @@ const { readJson, writeJson } = require('./storage.cjs');
 const { DownloadQueue } = require('./queue.cjs');
 const { createSources } = require('./sources.cjs');
 const { createSessionFetch } = require('./session-fetch.cjs');
-const { SETTINGS, validateDownloads } = require('./settings.cjs');
+const { SETTINGS, validateDownloads, blockedTags } = require('./settings.cjs');
+const {BrowserState,BROWSER_SETTINGS,validateBrowser,siteFor,languageUrl}=require('./browser-state.cjs');
+const {saveResponse,imageExtension}=require('./transfer.cjs');
 const { createNetworkProbe } = require('./network.cjs');
 const { LIBRARY_SETTINGS, VIEWER_SETTINGS, validatePreferences } = require('./reading-settings.cjs');
 const { createDuplicateChecker } = require('./download-check.cjs');
@@ -23,6 +25,8 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   settings.downloads = validateDownloads(settings.downloads || {});
   settings.library = validatePreferences('library', settings.library || {});
   settings.viewer = validatePreferences('viewer', settings.viewer || {});
+  settings.browser=validateBrowser(settings.browser||{});
+  const browsing=new BrowserState(path.join(dataPath,'browser.json'));let browserRevision=0,restoreScroll=null;
   let awakeId;
   const stopAwake = () => { if (awakeId !== undefined) powerSaveBlocker.stop(awakeId); awakeId = undefined; };
   const getSettings = () => settings.downloads;
@@ -46,7 +50,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
         try { const file = await library.call('asset', { id: Number(asset[1]), page: asset[2] === 'cover' ? 'cover' : Number(asset[2]) }); return net.fetch(pathToFileURL(file).href); }
         catch { return new Response('Image unavailable', { status: 404 }); }
       }
-      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js', 'queue-ui.js', 'queue.css'].includes(name)) return new Response('Not found', { status: 404 });
+      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js', 'queue-ui.js', 'queue.css','browser-ui.js','browser.css'].includes(name)) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(path.join(__dirname, 'ui', name)).href);
     });
   }
@@ -59,6 +63,13 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   browserSession.setPermissionRequestHandler((_, __, callback) => callback(false));
   browserSession.setPermissionCheckHandler(() => false);
   browserSession.on('will-download', event => event.preventDefault());
+  async function configureBrowser(value){
+    const servers={cloudflare:'https://cloudflare-dns.com/dns-query',quad9:'https://dns.quad9.net/dns-query',adguard:'https://dns.adguard-dns.com/dns-query'};
+    app.configureHostResolver(value.dns==='system'?{enableBuiltInResolver:false,secureDnsMode:'automatic',secureDnsServers:[]}:{enableBuiltInResolver:true,secureDnsMode:'secure',secureDnsServers:[servers[value.dns]]});
+    await browserSession.setProxy(value.proxy?{mode:'fixed_servers',proxyRules:value.proxy}:{mode:'system'});
+    nativeTheme.themeSource=value.forceLight?'light':'dark';
+  }
+  await configureBrowser(settings.browser);
   for (const site of SITES.filter(s => s.id !== 'hitomi')) {
     for (const [name, value] of [['sl', 'dm_2'], ['nw', '1']]) {
       if (!(await browserSession.cookies.get({ url: site.url, name })).length) {
@@ -78,9 +89,14 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   const queue = new DownloadQueue({ file: path.join(dataPath, 'queue.json'), ...sources, getSettings,
     network: needWifi => needWifi ? probe() : Promise.resolve({ online: offscreen || net.isOnline(), wifi: null }) });
   const checkDuplicate=createDuplicateChecker({library,queue,sources,file:path.join(dataPath,'cover-hashes.json'),getSettings});
-  let addChain=Promise.resolve();const pendingEnqueues=new Map();
+  let addChain=Promise.resolve(),browserSaveChain=Promise.resolve();const pendingEnqueues=new Map();
   const policyTimer = setInterval(() => queue.tick().catch(e => { error = e.message; publish(); }), 15000);
   const wc = browser.webContents;
+  browserSession.webRequest.onBeforeRequest({urls:['https://*/*']},(details,callback)=>{
+    // Hentoid's explicit Hitomi script blacklist; never intercept image transfers or hidden source readers.
+    const blocked=settings.browser.augmented&&details.webContentsId===wc.id&&details.resourceType==='script'&&siteFor(wc.getURL())==='hitomi'&&/(?:hitomi-horizontal|hitomi-vertical|invoke)\.js$|\/ion\.sound(?:\.min)?\.js$/.test(new URL(details.url).pathname);
+    callback({cancel:blocked});
+  });
   function guard(contents) {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     for (const name of ['will-navigate', 'will-redirect']) contents.on(name, (event, url) => {
@@ -100,8 +116,10 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     browser.setVisible(panel === 'browser');
   }
   function state() {
-    const url = wc.isDestroyed() ? '' : wc.getURL();
+    const url = wc.isDestroyed()||!allowedNavigation(wc.getURL()) ? '' : wc.getURL();
     return { sites: SITES, panel, url, gallery: galleryFromUrl(url), downloadRoot: settings.downloadRoot,
+      browserSettings:{...settings.downloads,...settings.browser},browserSchema:[...BROWSER_SETTINGS,...SETTINGS.filter(f=>f.key.startsWith('duplicate'))],browserRevision,
+      bookmarked:browsing.data.bookmarks.some(b=>b.url===url),canReopen:Boolean(browsing.reopen()),languageUrl:settings.browser.languageFilter?languageUrl(url,settings.browser.language):null,
       librarySettings: settings.library, viewerSettings: settings.viewer, librarySchema: LIBRARY_SETTINGS, viewerSchema: VIEWER_SETTINGS,
       downloadSettings: settings.downloads, settingsSchema: SETTINGS, queueRunning: queue.running,
       jobs: queue.jobs.filter(j=>!['complete','cancelled'].includes(j.status)).map(({files,...job})=>({...job,bytes:files.reduce((s,f)=>s+f.bytes,0)})), queueStats:queue.stats(), error, notice, loading: !wc.isDestroyed() && wc.isLoading(),
@@ -109,16 +127,17 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       canBack: !wc.isDestroyed() && wc.navigationHistory.canGoBack(), canForward: !wc.isDestroyed() && wc.navigationHistory.canGoForward() };
   }
   function publish() { if (!win.isDestroyed()) win.webContents.send('app:changed', state()); }
-  async function navigate(url) {
+  async function navigate(url,scroll=null) {
     if (typeof url !== 'string' || !allowedNavigation(url)) throw new Error('Use an HTTPS address from a supported source or its login forum.');
-    panel = 'browser'; error = ''; notice = ''; layout(); publish();
+    restoreScroll=scroll;panel = 'browser'; error = ''; notice = ''; layout(); publish();
     try { await wc.loadURL(url); } catch (e) { if (e.code !== 'ERR_ABORTED') { error = e.message; publish(); } }
   }
   function back() {
+    if(panel==='bookmarks'||panel==='storage'){win.webContents.send('browser:back');return;}
     if (panel === 'queue') { win.webContents.send('queue:back'); return; }
     if (panel === 'library') { win.webContents.send('library:back'); return; }
     if (panel === 'settings') panel = settingsReturnPanel;
-    else if (panel !== 'browser') panel = wc.getURL() ? 'browser' : 'sources';
+    else if (panel !== 'browser') panel = allowedNavigation(wc.getURL()) ? 'browser' : 'sources';
     else if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
     else panel = 'sources';
     layout(); publish();
@@ -158,13 +177,18 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
   }
   for (const contents of [wc, win.webContents]) contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
+    if(input.control&&input.key.toLowerCase()==='b'&&!settings.browser.lockBookmarks){event.preventDefault();panel=panel==='bookmarks'?(allowedNavigation(wc.getURL())?'browser':'sources'):'bookmarks';layout();publish();return;}
     if (input.key === 'Escape' || (input.alt && input.key === 'ArrowLeft')) { event.preventDefault(); back(); }
   });
   wc.on('did-fail-load', (_, code, description, url, mainFrame) => { if (mainFrame && code !== -3) { error = `${description}. Check your connection or login.`; publish(); } });
   for (const event of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated']) wc.on(event, publish);
-  queue.on('change', publish);
+  function rememberPage(){const url=wc.getURL();const previous=browsing.data.last[siteFor(url)];browsing.remember(url,wc.getTitle(),previous?.url===url?previous.scroll:0);browserRevision++;publish();}
+  function sendBrowserOptions(){if(!wc.isDestroyed())wc.send('browser:options',{...settings.browser,blockedTags:settings.downloads.blockedTags});}
+  wc.on('did-navigate',rememberPage);wc.on('did-navigate-in-page',rememberPage);wc.on('page-title-updated',rememberPage);
+  wc.on('dom-ready',()=>{sendBrowserOptions();if(restoreScroll!==null){wc.send('browser:restore-scroll',restoreScroll);restoreScroll=null;}});
+  queue.on('change', ()=>{publish();sendBrowserOptions();});
   queue.on('problem', message => { error = message; publish(); });
-  const libraryChanged = () => { libraryRevision++; publish(); };
+  const libraryChanged = () => { libraryRevision++; publish();sendBrowserOptions(); };
   library.on('problem', message => { error = message; publish(); });
   library.on('scan', scan => { libraryScan = scan; if (!scan.running) libraryRevision++; publish(); });
   queue.on('complete', directory => {
@@ -177,15 +201,70 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     'app:state': () => state(),
     'app:navigate': (_, url) => navigate(url),
     'app:panel': (_, value) => {
-      if (!['sources', 'browser', 'queue', 'settings', 'library'].includes(value)) throw new Error('Unknown panel.');
+      if (!['sources', 'browser', 'queue', 'settings', 'library','bookmarks','storage'].includes(value)) throw new Error('Unknown panel.');
       if (value === 'settings' && panel !== 'settings') settingsReturnPanel = panel;
-      panel = value === 'browser' && !wc.getURL() ? 'sources' : value; layout(); publish();
+      panel = value === 'browser' && !allowedNavigation(wc.getURL()) ? 'sources' : value; layout(); publish();
     },
     'app:save-preferences': (_, section, patch) => {
       const updated = validatePreferences(section, patch, settings[section]);
       writeJson(settingsFile, { ...settings, [section]: updated }); settings[section] = updated;
       if (section === 'viewer' && !updated.keepAwake) stopAwake();
       notice = 'Preferences saved.'; error = ''; publish(); return updated;
+    },
+    'app:save-browser':(_,patch)=>{
+      const save=browserSaveChain.then(async()=>{
+      const updated=validateBrowser(patch,settings.browser),previous=settings.browser;
+      try{if(updated.proxy!==previous.proxy||updated.dns!==previous.dns||updated.forceLight!==previous.forceLight)await configureBrowser(updated);writeJson(settingsFile,{...settings,browser:updated});}
+      catch(e){await configureBrowser(previous);throw e;}
+      settings.browser=updated;sendBrowserOptions();if(updated.forceLight!==previous.forceLight&&allowedNavigation(wc.getURL()))wc.reload();notice='Browser preferences saved.';error='';publish();return updated;
+      });browserSaveChain=save.catch(()=>{});return save;
+    },
+    'app:browser':async(_,action,input)=>{
+      if(action==='list')return browsing.snapshot();
+      if(action==='source'){const entry=browsing.start(input,settings.browser.resumeLast);return navigate(entry.url,entry.scroll);}
+      if(action==='reopen'){const entry=browsing.reopen();if(entry)return navigate(entry.url,entry.scroll);return;}
+      if(action==='close'){rememberPage();browsing.closePage(wc.getURL());await wc.loadURL('about:blank');panel='sources';layout();publish();return;}
+      if(action==='add-current'){if(!siteFor(wc.getURL()))throw new Error('Open a source page first.');input={url:wc.getURL(),title:wc.getTitle()};action='save';}
+      if(action==='export'){
+        const result=await dialog.showSaveDialog(win,{title:'Export bookmarks',defaultPath:'hentdows-bookmarks.json',filters:[{name:'Bookmarks',extensions:['json']}]});
+        if(!result.canceled)writeJson(result.filePath,{schemaVersion:1,bookmarks:browsing.data.bookmarks});return;
+      }
+      if(action==='import'){
+        const result=await dialog.showOpenDialog(win,{title:'Import Hentdows bookmarks',properties:['openFile'],filters:[{name:'Bookmarks',extensions:['json']}]});if(result.canceled)return;
+        const file=result.filePaths[0];if(fs.statSync(file).size>10*1024**2)throw new Error('Bookmark file is too large.');const data=readJson(file,{});input=Array.isArray(data)?data:data.bookmarks;
+      }
+      if(action==='clear-cookies'||action==='clear-cache'){
+        const choice=await dialog.showMessageBox(win,{type:'question',message:action==='clear-cookies'?'Clear browser cookies and sign out of all sources?':'Clear cached browser images and files?',detail:action==='clear-cookies'?'Bookmarks, downloads and library data are kept.':'Cookies and logins are kept.',buttons:['Cancel','Clear'],defaultId:0,cancelId:0});if(choice.response!==1)return;
+        if(action==='clear-cookies')await browserSession.clearStorageData({storages:['cookies']});else await browserSession.clearCache();notice='Browser '+(action==='clear-cookies'?'cookies':'cache')+' cleared.';publish();return;
+      }
+      const result=browsing.mutate(action,input);browserRevision++;publish();return result;
+    },
+    'app:storage':async(_,action,id)=>{
+      if(action==='list')return {defaultPath:settings.downloadRoot,locations:await library.call('storage')};
+      if(action==='add'){
+        const selected=await dialog.showOpenDialog(win,{title:'Add a storage location',properties:['openDirectory','createDirectory']});if(selected.canceled)return;
+        if(libraryScan.running)throw new Error('Wait for the current library refresh to finish before adding a location.');
+        await library.call('addRoot',selected.filePaths[0]);libraryChanged();return library.call('scan');
+      }
+      const root=(await library.call('roots')).find(r=>r.id===id);if(!root)throw new Error('Storage location not found.');
+      const contains=directory=>{const rel=path.relative(root.path,path.resolve(directory));return !rel||rel!=='..'&&!rel.startsWith('..'+path.sep)&&!path.isAbsolute(rel);};
+      if(action==='default'){
+        fs.accessSync(root.path,fs.constants.W_OK);settings.downloadRoot=root.path;writeJson(settingsFile,settings);notice='New downloads will use this location. Existing jobs keep their destination.';publish();return;
+      }
+      if(action==='open'){const result=await shell.openPath(root.path);if(result)throw new Error(result);return;}
+      if(!['remove','reconnect'].includes(action))throw new Error('Unknown storage action.');
+      if(queue.jobs.some(j=>j.status!=='cancelled'&&contains(j.directory)))throw new Error('Finish or remove this location’s queued downloads first.');
+      if(action==='remove'){
+        if(contains(settings.downloadRoot))throw new Error('Choose another default download location first.');
+        const result=await dialog.showMessageBox(win,{type:'warning',message:'Remove this location from the library?',detail:root.path+'\nImage files are kept. Indexed metadata, ratings and reading progress for its books will be removed. You can back up metadata from the Library menu first.',buttons:['Cancel','Remove location'],defaultId:0,cancelId:0});if(result.response!==1)return;
+        await library.call('removeRoot',id);
+      }else{
+        const selected=await dialog.showOpenDialog(win,{title:'Reconnect the same library folder at its new location',properties:['openDirectory']});if(selected.canceled)return;
+        const result=await dialog.showMessageBox(win,{type:'question',message:'Reconnect this library location?',detail:root.path+'\n→ '+selected.filePaths[0]+'\nChoose the same folder on its new drive. Files are not moved. Book metadata and reading progress are retained.',buttons:['Cancel','Reconnect'],defaultId:0,cancelId:0});if(result.response!==1)return;
+        const wasDefault=contains(settings.downloadRoot),relative=path.relative(root.path,settings.downloadRoot);
+        const updated=await library.call('relocateRoot',{id,directory:selected.filePaths[0]});if(wasDefault){settings.downloadRoot=path.join(updated,relative);writeJson(settingsFile,settings);}await library.call('scan');
+      }
+      libraryChanged();
     },
     'app:reader-active': (_, active) => {
       if (typeof active !== 'boolean') throw new Error('Invalid reader state.');
@@ -194,11 +273,11 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     'app:save-settings': async (_, patch) => {
       const updated = validateDownloads(patch, settings.downloads);
       writeJson(settingsFile, { ...settings, downloads: updated });
-      settings.downloads = updated; notice = 'Download settings saved.'; error = ''; publish();
+      settings.downloads = updated; notice = 'Download settings saved.'; error = ''; publish();sendBrowserOptions();
       await queue.tick(); return updated;
     },
     'app:command': (_, command) => {
-      if (command === 'leave-queue') { panel=wc.getURL()?'browser':'sources';layout();publish(); }
+      if (command === 'leave-queue'||command==='browser-back') { panel=allowedNavigation(wc.getURL())?'browser':'sources';layout();publish(); }
       else if (command === 'back') back();
       else if (command === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
       else if (command === 'reload') wc.reload();
@@ -285,19 +364,44 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     return handler(event, ...args);
   });
   const remoteHandlers = [];
+  function remote(name,handler){const guarded=(event,...args)=>{if(event.sender!==wc||event.senderFrame!==wc.mainFrame||!allowedNavigation(event.senderFrame.url))return;Promise.resolve().then(()=>handler(...args)).catch(e=>{error=e.message;publish();});};ipcMain.on(name,guarded);remoteHandlers.push([name,guarded]);}
+  remote('browser:position',(url,scroll)=>{if(url===wc.getURL()&&Number.isFinite(scroll)&&scroll>=0&&scroll<=10000000)browsing.remember(url,wc.getTitle(),scroll);});
+  let lastMarkRequest=0;
+  remote('browser:mark-links',async(url,links)=>{
+    if(url!==wc.getURL()||!Array.isArray(links)||links.length>300||Date.now()-lastMarkRequest<300)return;lastMarkRequest=Date.now();
+    const valid=links.filter(l=>l&&typeof l.url==='string'&&Array.isArray(l.tags)&&l.tags.length<=100).map(l=>({...galleryFromUrl(l.url),url:l.url,tags:l.tags.filter(t=>typeof t==='string'&&t.length<=200)})).filter(g=>g.site);
+    const marks=await library.call('browserMarks',valid.map(g=>({...g,sourceId:g.id})));
+    for(let i=0;i<marks.length;i++){const g=valid[i];marks[i].queued=queue.jobs.some(j=>identity(j.site,j.sourceId)===identity(g.site,g.id)&&!['complete','cancelled'].includes(j.status));marks[i].blocked=blockedTags([...marks[i].tags,...g.tags],settings.downloads.blockedTags).length>0;delete marks[i].tags;}
+    if(url===wc.getURL())wc.send('browser:marks',{url,marks});
+  });
+  let savingPicture=false;
+  remote('browser:grab-picture',async(url)=>{
+    if(!settings.browser.grabPictures||savingPicture||typeof url!=='string'||url.length>8192)return;savingPicture=true;
+    const controller=new AbortController();queue.pendingAdds.add(controller);let staging;
+    try{
+      const response=await sources.fetchImage(url,wc.getURL(),AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])),ext=await imageExtension(response,url);
+      const choice=await dialog.showSaveDialog(win,{title:'Save picture',defaultPath:path.join(app.getPath('pictures'),'picture.'+ext),filters:[{name:'Image',extensions:[ext]}]});
+      if(choice.canceled){await response.body?.cancel();return;}
+      staging=choice.filePath+'.hentdows-'+require('node:crypto').randomUUID();let size=0;
+      await saveResponse(response,staging,controller.signal,queue.limiter,bytes=>{size+=bytes;if(size>128*1024**2)throw new Error('Picture exceeds the 128 MiB limit.');});fs.renameSync(staging,choice.filePath);notice='Picture saved.';publish();
+    }finally{savingPicture=false;queue.pendingAdds.delete(controller);if(staging&&fs.existsSync(staging))fs.unlinkSync(staging);}
+  });
   for (const [name, action] of [['browser:open-link', navigate], ['browser:download-link', enqueue]]) {
     const handler = (event, url, requestId) => {
       if (event.sender !== wc || event.senderFrame !== wc.mainFrame || !allowedNavigation(event.senderFrame.url) || !galleryFromUrl(url)) return;
+      if(name==='browser:download-link'&&!settings.browser.quickDownload)return;
       Promise.resolve().then(() => action(url)).then(result=>{if(name==='browser:download-link'&&!wc.isDestroyed())wc.send('browser:download-result',{requestId,...result});}).catch(e => { error = e.message; publish();if(name==='browser:download-link'&&!wc.isDestroyed())wc.send('browser:download-result',{requestId,status:'error',message:e.message}); });
     };
     ipcMain.on(name, handler); remoteHandlers.push([name, handler]);
   }
   win.on('close', () => {
     if (quitting) return; quitting = true;
+    if(!wc.isDestroyed())browsing.closePage(wc.getURL());
     stopAwake(); clearInterval(policyTimer); queue.close(); void library.close();
     for (const name of Object.keys(handlers)) ipcMain.removeHandler(name);
     for (const [name, handler] of remoteHandlers) ipcMain.removeListener(name, handler);
     if (!wc.isDestroyed()) wc.close();
+    browserSession.webRequest.onBeforeRequest(null);
   });
   await win.loadURL('hentdows://app/');
   layout(); publish();

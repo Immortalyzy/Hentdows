@@ -18,6 +18,21 @@ Electron supplies Chromium; no separate Chrome installation is needed.
 
 ## First feature slice
 
+- Rate library books from 0–5 stars using the card's star button, book details,
+  or selection actions. Clear resets a rating to zero.
+- Right-click a library book for the selection actions, with Delete first.
+  Right-clicking inside a selection acts on all selected books; outside it selects
+  only the clicked book. Delete still asks before moving files to the Recycle Bin.
+
+- Persistent bookmarks with search, source filters, editing, ordering, custom
+  homepages, and JSON import/export. Use the bottom star or Ctrl+B.
+- Browser preferences include per-source resume, reopen last page, quick download,
+  picture saving, page markers, Hitomi language filtering, light mode, DNS/proxy,
+  and confirmed cookie/cache clearing. See [browser/storage notes](docs/vibe_steps/01_browersing/04_browser_storage.md).
+- Multiple storage locations with a default for new downloads, offline status,
+  free space, and path reconnection that preserves reading metadata. Manage them
+  from Sources, Settings or the Library menu. Existing jobs keep their destination.
+
 - Portrait browser window, source chooser, address bar, history and reload.
 - E-hentai and ExHentai: classic gallery pagination, multipage viewer parsing,
   metadata, displayed-image downloads, failed-image fallback, and download-limit
@@ -164,6 +179,7 @@ npm test
 npm run smoke
 npm run smoke:network
 npm run smoke:queue
+npm run smoke:browser
 npm run smoke:library
 npm run smoke:reader
 npm run benchmark:library
@@ -186,8 +202,8 @@ does not scan or validate an actual 200–400 GiB image collection.
 Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
-saved profile. The download queue amendment build is also available locally under
-`dist/0.5.0/Hentdows-win32-x64/` so it can be built while the older copy is running.
+saved profile. The library interaction amendment build is also available locally under
+`dist/0.6.1/Hentdows-win32-x64/` so it can be built while the older copy is running.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

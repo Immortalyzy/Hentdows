@@ -13,7 +13,43 @@ function galleryLink(target) {
   } catch { return null; }
 }
 
-let pending, requestSequence=0, toast;
+let pending, requestSequence=0, toast,options={quickDownload:true},scanTimer,positionTimer,restoring=false;
+const markers=new Map();let adStyle;
+function scanLinks(){
+  scanTimer=null;if(!options.markDownloaded&&!options.markQueued&&!options.markBlocked){for(const node of markers.values())node.remove();markers.clear();return;}
+  const links=new Map();
+  for(const a of document.querySelectorAll('a[href]')){const url=galleryLink(a);if(!url||links.has(url))continue;
+    const row=a.closest('.gallery-content,.gallery,.gl1t,tr')||a.parentElement;
+    const tags=[...row.querySelectorAll('[title],a[href*="/tag/"]')].slice(0,100).map(n=>n.getAttribute('title')||n.textContent).filter(t=>t&&t.length<=200);
+    links.set(url,{url,tags});if(links.size>=300)break;
+  }
+  ipcRenderer.send('browser:mark-links',location.href,[...links.values()]);
+}
+function scheduleScan(){if(!scanTimer)scanTimer=setTimeout(scanLinks,450);}
+ipcRenderer.on('browser:options',(_,value)=>{
+  options=value;if(!options.quickDownload)clearTimeout(pending);
+  if(!adStyle){adStyle=document.createElement('style');document.documentElement.append(adStyle);}
+  const css=options.augmented?'iframe[src*="exoclick"],iframe[src*="trafficjunky"],.ad-container,.adbox,#adtop,#adbottom,ins.adsbygoogle{display:none!important}':'';
+  if(adStyle.textContent!==css)adStyle.textContent=css;
+  scheduleScan();
+});
+ipcRenderer.on('browser:marks',(_,result)=>{
+  if(result.url!==location.href)return;
+  for(const mark of result.marks){
+    const label=[options.markDownloaded&&mark.downloaded?'✓ Downloaded':'',options.markQueued&&mark.queued?'⇩ Queued':'',options.markBlocked&&mark.blocked?'⊘ Blocked tags':''].filter(Boolean).join(' · ');
+    let node=markers.get(mark.url);
+    if(!label){node?.remove();markers.delete(mark.url);continue;}
+    if(!node?.isConnected){const anchor=[...document.querySelectorAll('a[href]')].find(a=>a.href===mark.url);if(!anchor)continue;node=document.createElement('span');Object.assign(node.style,{display:'inline-block',background:mark.blocked?'#7d3434':'#28513d',color:'#fff',font:'11px Segoe UI,sans-serif',padding:'3px 5px',margin:'3px',borderRadius:'3px'});anchor.after(node);markers.set(mark.url,node);}
+    if(node.textContent!==label)node.textContent=label;
+  }
+});
+ipcRenderer.on('browser:restore-scroll',(_,scroll)=>{
+  if(!Number.isFinite(scroll))return;restoring=true;clearTimeout(positionTimer);
+  let attempts=0;const restore=()=>{window.scrollTo(0,scroll);if(++attempts<8&&scrollY<scroll&&document.readyState!=='complete')setTimeout(restore,150);else {restoring=false;ipcRenderer.send('browser:position',location.href,scrollY);}};setTimeout(restore,100);
+});
+window.addEventListener('scroll',()=>{if(restoring)return;clearTimeout(positionTimer);positionTimer=setTimeout(()=>ipcRenderer.send('browser:position',location.href,scrollY),250);},{passive:true});
+window.addEventListener('pagehide',()=>{if(!restoring)ipcRenderer.send('browser:position',location.href,scrollY);});
+window.addEventListener('DOMContentLoaded',()=>new MutationObserver(scheduleScan).observe(document.documentElement,{childList:true,subtree:true}));
 const requests=new Map();
 function feedback(message,status,point){
   toast?.remove();const host=document.createElement('div');toast=host;
@@ -30,9 +66,10 @@ ipcRenderer.on('browser:download-result',(_,result)=>{
   feedback(result.message||'Download request finished.',result.status,point);
 });
 window.addEventListener('click', event => {
+  if(!options.quickDownload)return;
   if (!event.isTrusted || event.button !== 0 || event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
   const url = galleryLink(event.target);
-  if (!url) return;
+  if(!url)return;
   event.preventDefault(); event.stopImmediatePropagation();
   clearTimeout(pending);
   if (event.detail > 1) return;
@@ -42,7 +79,9 @@ window.addEventListener('click', event => {
 window.addEventListener('dblclick', event => {
   if (!event.isTrusted || event.button !== 0 || event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
   const url = galleryLink(event.target);
-  if (!url) return;
+  if(!url||!options.quickDownload){
+    const img=event.target.closest?.('img');if(options.grabPictures&&img&&!url){event.preventDefault();event.stopImmediatePropagation();ipcRenderer.send('browser:grab-picture',img.currentSrc||img.src);}return;
+  }
   clearTimeout(pending);
   event.preventDefault(); event.stopImmediatePropagation();
   const requestId=++requestSequence,point={x:event.clientX,y:event.clientY};requests.set(requestId,point);

@@ -50,13 +50,23 @@ async function scan() {
   } finally {scanning=false;parentPort.postMessage({event:'scan',state:{running:false,checked,added,skipped,cancelled:cancelScan,errors:errors.slice(-20)}});}
 }
 const methods={
+  browserMarks:input=>store.browserMarks(input),
+  storage:async()=>Promise.all(store.rootStats().map(async root=>{try{const stat=await fs.promises.stat(root.path);if(!stat.isDirectory())throw new Error('Not a folder');const space=await fs.promises.statfs(root.path);return {...root,online:true,free:space.bavail*space.bsize};}catch{return {...root,online:false,free:null};}})),
+  removeRoot:id=>{if(scanning)throw new Error('Stop library refresh before removing a location.');return store.removeRoot(id);},
+  relocateRoot:({id,directory})=>{
+    if(scanning)throw new Error('Stop library refresh before reconnecting a location.');
+    const real=fs.realpathSync(directory);if(!fs.statSync(real).isDirectory())throw new Error('Choose a folder.');
+    if(store.roots().some(r=>r.id!==id&&(r.path.toLowerCase()===real.toLowerCase()||inside(r.path,real)||inside(real,r.path))))throw new Error('Storage locations must not overlap.');
+    store.relocateRoot(id,real);return real;
+  },
   duplicateCandidates:input=>store.duplicateCandidates(input),adjacent:input=>store.adjacent(input),query:input=>store.query(input),get:id=>store.get(id),suggestions:input=>store.suggestions(input),roots:()=>store.roots(),groups:()=>store.groups(),
   facets:input=>store.facets(input),findSource:input=>store.findSource(input),indexed:paths=>store.indexed(paths),
   update:input=>store.update(input),group:input=>store.group(input),read:input=>store.read(input),detach:ids=>store.detach(ids),shuffle:()=>store.shuffle(),
   restoreDetached:()=>store.restoreDetached(),scan,cancel:()=>{cancelScan=true;},
   addRoot:directory=>{
     const real=fs.realpathSync(directory);if(!fs.statSync(real).isDirectory()) throw new Error('Choose a library folder.');
-    const existing=store.roots().find(r=>r.path===real||inside(r.path,real));
+    const existing=store.roots().find(r=>r.path.toLowerCase()===real.toLowerCase()||inside(r.path,real));
+    if(!existing&&store.roots().some(r=>inside(real,r.path)))throw new Error('This folder contains an existing storage location. Choose separate folders.');
     return existing||store.addRoot(real);
   },
   index:directory=>{

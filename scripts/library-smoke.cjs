@@ -1,7 +1,7 @@
-const {app}=require('electron');
+const {app,dialog}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {setTimeout:delay}=require('node:timers/promises');
-const {createApplication}=require('../src/main.cjs');
+const {createApplication}=require(process.env.HENTDOWS_TEST_ASAR?path.join(process.env.HENTDOWS_TEST_ASAR,'src/main.cjs'):'../src/main.cjs');
 const root=path.resolve('artifacts',`library-smoke-${Date.now()}`),downloads=path.join(root,'downloads');
 fs.mkdirSync(downloads,{recursive:true});app.setPath('userData',root);app.disableHardwareAcceleration();
 const titles=['Winter Letters','The Observatory','A Journey Home','Quiet Mornings','Beyond the Garden','Moonlight Sketches'];
@@ -14,8 +14,9 @@ for(let i=1;i<=75;i++){
 fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({downloadRoot:downloads,library:{endless:false,pageSize:60}}));
 async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;await delay(30);}throw new Error('Library smoke timed out');}
 app.whenReady().then(async()=>{
+  let deletePrompt;dialog.showMessageBox=async(_win,options)=>{deletePrompt=options;return {response:0};};
   const instance=await createApplication({show:false,offscreen:true,dataPath:root});const {win,library,libraryReady}=instance;
-  const js=code=>win.webContents.executeJavaScript(code),errors=[];win.webContents.on('console-message',(_e,_l,message)=>{if(/error|not defined/i.test(message))errors.push(message);});
+  const js=code=>win.webContents.executeJavaScript(code).catch(error=>{throw new Error(code+"\n"+error.message);}),errors=[];win.webContents.on('console-message',(_e,_l,message)=>{if(/error|not defined/i.test(message))errors.push(message);});
   await libraryReady;await until(()=>js('document.querySelectorAll(".book").length===60'));
   assert.equal(await js('document.querySelector("#library-total").textContent.includes("75 books")'),true);
   await until(()=>js('[...document.querySelectorAll(".book-cover")].slice(0,4).every(i=>i.complete&&i.naturalWidth>0)'));
@@ -29,7 +30,28 @@ app.whenReady().then(async()=>{
   const id=(await library.call('query',{favourite:1})).books[0].id;
   await js(`document.querySelector('.book[data-id="${id}"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);await until(()=>js('!document.getElementById("library-selection").hidden'));
   await js('document.getElementById("library-action").value="rate";document.getElementById("library-action").dispatchEvent(new Event("change"))');await until(()=>js('document.getElementById("library-dialog").open'));
-  await js('[...document.querySelectorAll("#library-dialog-content button")].find(b=>b.textContent==="★★★★").click()');await until(async()=> (await library.call('get',id)).rating===4);
+  await js(`document.querySelector('[data-rating="4"]').click()`);await until(async()=> (await library.call('get',id)).rating===4);
+  await until(()=>js('!document.getElementById("library-dialog").open'));
+  const context=bookId=>js(`document.querySelector('.book[data-id="${bookId}"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:380,clientY:540}))`);
+  await context(id);assert.equal(await js('document.querySelector("#book-context-menu button").dataset.action'),'delete');
+  assert.deepEqual(await js('[...document.querySelectorAll("#book-context-menu button")].map(b=>b.dataset.action)'),await js('[...document.querySelector("#library-action").options].map(o=>o.value).filter(Boolean)'));
+  await js('document.querySelector("#book-context-menu [data-action=delete]").click()');await delay(100);assert.ok(deletePrompt.message.includes('1 book'));assert.equal((await library.call('get',id)).rating,4);
+  await context(id);win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});await until(()=>js('document.querySelector("#book-context-menu").hidden'));assert.equal(await js('document.querySelector("#library-selected").textContent'),'1 selected');
+  const secondId=await js(`Number([...document.querySelectorAll('.book')].find(b=>Number(b.dataset.id)!==${id}).dataset.id)`);
+  await js(`document.querySelector('.book[data-id="${secondId}"]').click()`);await context(id);assert.equal(await js('document.querySelector("#library-selected").textContent'),'2 selected');
+  await js('document.querySelector("#book-context-menu [data-action=rate]").click()');await until(()=>js('document.querySelector("#library-dialog").open'));await js(`document.querySelector('[data-rating="5"]').click()`);await until(async()=> (await library.call('get',id)).rating===5&&(await library.call('get',secondId)).rating===5);
+  await until(()=>js('!document.getElementById("library-dialog").open'));await js('document.getElementById("library-deselect").click()');
+  await until(()=>js(`document.querySelector('.book[data-id="${id}"] .book-rating').textContent==='★ 5'`));
+  for(let rating=0;rating<=5;rating++){
+    await until(()=>js(`document.querySelector('.book[data-id="${id}"] .book-rating')!==null`));await js(`document.querySelector('.book[data-id="${id}"] .book-rating').click()`);await until(()=>js('document.querySelector("#library-dialog").open'));
+    if(rating===0){assert.equal(await js('document.querySelectorAll(".rating-stars .filled").length'),5);await delay(180);await win.webContents.capturePage().then(i=>fs.writeFileSync(path.join(root,'rating-picker.png'),i.toPNG()));}
+    await js(`document.querySelector('[data-rating="${rating}"]').click()`);await until(async()=> (await library.call('get',id)).rating===rating);await until(()=>js('!document.getElementById("library-dialog").open'));
+    await until(()=>js(`document.querySelector('.book[data-id="${id}"] .book-rating').textContent===${JSON.stringify((rating?'★':'☆')+' '+rating)}`));
+  }
+  await context(secondId);assert.equal(await js('document.querySelector("#library-selected").textContent'),'1 selected');assert.equal(await js('document.querySelector(".book.selected").dataset.id'),String(secondId));
+  await js('document.querySelector("#book-context-menu [data-action=favourite]").click()');await until(async()=>(await library.call('get',secondId)).favourite===1);
+  await js(`document.querySelector('.book[data-id="${id}"] .book-rating').click()`);await until(()=>js('document.querySelector("#library-dialog").open'));await js(`document.querySelector('[data-rating="4"]').click()`);await until(async()=>(await library.call('get',id)).rating===4);
+  await until(()=>js('!document.getElementById("library-dialog").open'));
   await js('document.getElementById("library-deselect").click()');await js(`document.querySelector('.book[data-id="${id}"]').click()`);await until(()=>js('document.querySelector(".reader-image")!==null'));
 await until(async()=> (await library.call('get',id)).reads===1);
   assert.equal((await library.call('get',id)).progress,.5);
@@ -46,7 +68,12 @@ await until(async()=> (await library.call('get',id)).reads===1);
   const safe=await js('fetch("hentdows://app/library/999999/cover").then(r=>r.status)');assert.equal(safe,404);
   assert.equal(await js('typeof require'), 'undefined');
   win.setSize(390,600);await delay(100);assert.equal(await js('document.documentElement.scrollWidth<=innerWidth'),true);
+  win.focus();win.webContents.focus();await delay(200);const point=await js(`(()=>{const r=document.querySelector('.book[data-id="${id}"]').getBoundingClientRect();return {x:r.left+12,y:r.top+12};})()`);
+  win.webContents.debugger.attach('1.3');for(const type of ['mousePressed','mouseReleased'])await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...point,button:'right',clickCount:1});win.webContents.debugger.detach();
+  await until(()=>js('!document.querySelector("#book-context-menu").hidden'));assert.equal(await js('(()=>{const r=document.querySelector("#book-context-menu").getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'),true);
+  await win.webContents.capturePage().then(i=>fs.writeFileSync(path.join(root,'context-menu-narrow.png'),i.toPNG()));
+  win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});await until(()=>js('document.querySelector("#book-context-menu").hidden'));
   assert.deepEqual(errors.filter(e=>!e.includes('404')),[]);
   await library.call('export',{file:path.join(root,'backup.sqlite')});assert.ok(fs.statSync(path.join(root,'backup.sqlite')).size>0);
-  console.log(`Library smoke passed: ${root}`);await library.close();win.close();app.quit();
+  await js('hentdows.panel("sources")');await delay(100);console.log(`Library smoke passed: ${root}`);win.close();app.quit();
 }).catch(e=>{console.error(e);app.exit(1);});
