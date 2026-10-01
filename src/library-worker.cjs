@@ -2,26 +2,38 @@ const { parentPort,workerData }=require('node:worker_threads');
 const fs=require('node:fs');
 const path=require('node:path');
 const {LibraryStore}=require('./library-store.cjs');
-const {MANIFESTS,imageName,parseHentoid,imageSignature}=require('./hentoid-import.cjs');
+const {MANIFESTS,imageName,hasImageHeader,parseHentoid,imageSignature}=require('./hentoid-import.cjs');
 const store=new LibraryStore(workerData.file);
 let scanning=false,cancelScan=false,scanToken=0;
 const inside=(root,target)=>{const relative=path.relative(root,target);return relative!==''&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative);};
+const isManifest=entry=>(entry.isFile()||entry.isSymbolicLink())&&MANIFESTS.includes(entry.name.toLowerCase());
 function indexDirectory(directory,root,seen=Date.now(),entries=fs.readdirSync(directory,{withFileTypes:true}),warn=()=>{}) {
   if(store.isDetached(directory)) return false;
-  const manifest=MANIFESTS.map(name=>entries.find(e=>e.name.toLowerCase()===name)).find(Boolean);
+  const manifest=MANIFESTS.map(name=>entries.find(e=>isManifest(e)&&e.name.toLowerCase()===name)).find(Boolean);
   if(!manifest)throw new Error('No supported book metadata found.');
   const filename=path.join(directory,manifest.name), stat=fs.lstatSync(filename);
   if(stat.isSymbolicLink()||stat.size>32*1024*1024) throw new Error('Invalid book manifest.');
-  const signature=`${manifest.name}:${stat.size}:${stat.mtimeMs}:${fs.statSync(directory).mtimeMs}:${imageSignature(entries.filter(e=>imageName(e.name)).map(e=>({name:e.name})))}`,old=store.byPath(directory);
+  const signature=`2:${manifest.name}:${stat.size}:${stat.mtimeMs}:${fs.statSync(directory).mtimeMs}:${imageSignature(entries.filter(e=>imageName(e.name)).map(e=>({name:e.name})))}`,old=store.byPath(directory);
   if(old?.signature===signature) {store.markSeen(old.id,seen);return false;}
-  const data=JSON.parse(fs.readFileSync(filename,'utf8').replace(/^\uFEFF/,''));
+  let data;try{data=JSON.parse(fs.readFileSync(filename,'utf8').replace(/^\uFEFF/,''));}
+  catch(error){if(error instanceof SyntaxError)throw new Error(`Cannot parse ${manifest.name}; this book was skipped. The JSON may be incomplete or damaged. Recopy it from Hentoid or regenerate its metadata in Hentoid, then refresh.`);throw error;}
   if(data.schemaVersion!==1){
     const images=[];
     for(const entry of entries.filter(e=>imageName(e.name))){
       if(entry.isSymbolicLink())throw new Error('Linked images cannot be imported.');
-      if(entry.isFile()){const fileStat=fs.lstatSync(path.join(directory,entry.name));if(fileStat.isFile()&&!fileStat.isSymbolicLink())images.push({name:entry.name,bytes:fileStat.size});}
+      if(entry.isFile()){
+        const filename=path.join(directory,entry.name),fileStat=fs.lstatSync(filename);if(!fileStat.isFile()||fileStat.isSymbolicLink())continue;
+        if(!entry.name.includes('.')){
+          // Only sniff a small header for extensionless files; unrelated files
+          // such as README are not pages, and image bodies stay on disk.
+          const fd=fs.openSync(filename,'r');let header;
+          try{const bytes=Buffer.alloc(64);header=bytes.subarray(0,fs.readSync(fd,bytes,0,bytes.length,0));}finally{fs.closeSync(fd);}
+          if(!hasImageHeader(header))continue;
+        }
+        images.push({name:entry.name,bytes:fileStat.size});
+      }
     }
-    const book=parseHentoid(data,images);store.index({...book,path:directory,root:root.id,signature,pages:book.files.length,size:book.files.reduce((sum,f)=>sum+f.bytes,0),downloaded:book.downloaded||stat.birthtimeMs,finished:book.finished||stat.mtimeMs,seen});
+    const book=parseHentoid(data,images);store.index({...book,path:directory,root:root.id,signature:book.warnings.length?'partial:'+signature:signature,pages:book.files.length,size:book.files.reduce((sum,f)=>sum+f.bytes,0),downloaded:book.downloaded||stat.birthtimeMs,finished:book.finished||stat.mtimeMs,seen});
     for(const warning of book.warnings)warn(warning);return true;
   }
   if(data.status!=='complete') return false;
@@ -47,11 +59,14 @@ async function scan() {
         let entries;
         try {entries=await fs.promises.readdir(directory,{withFileTypes:true});}
         catch(e) {complete=false;errors.push(`${directory}: ${e.message}`);continue;}
-        if(entries.some(e=>MANIFESTS.includes(e.name.toLowerCase()))) {
+        if(entries.some(isManifest)) {
           try {if(indexDirectory(directory,root,scanToken,entries,message=>errors.push(`${directory}: ${message}`))) added++;else skipped++;}
           catch(e) {complete=false;errors.push(`${directory}: ${e.message}`);}
           checked++;
-        } else for(const entry of entries) if(entry.isDirectory()&&!entry.isSymbolicLink()) pending.push(path.join(directory,entry.name));
+        }
+        // Metadata is not a traversal boundary: a container or book can itself
+        // contain book folders. Visit every source/bucket regardless of its name.
+        for(const entry of entries) if(entry.isDirectory()&&!entry.isSymbolicLink()) pending.push(path.join(directory,entry.name));
         if(checked%50===0) {progress();await new Promise(resolve=>setImmediate(resolve));}
       }
       if(!cancelScan&&complete) store.finishScan(root.id,scanToken);

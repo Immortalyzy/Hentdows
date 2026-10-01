@@ -8,3 +8,4 @@
 - Develop and test with synthetic fixtures in isolated temporary profiles and
   storage folders only. Source code and the checked-in Hentoid reference source
   may be read. Do not use existing user library data as test fixtures.
+- Commit each completed feature or bug fix after its validation passes.

@@ -121,7 +121,7 @@ folder containing book images and JSON metadata. All registered locations appear
 together; the **Storage** selector can narrow the list to one location. Adding a
 location leaves the default destination for new downloads unchanged.
 Use **Refresh library** to find filesystem changes.
-The index reads manifests rather than image bodies. Missing drives/books retain
+The index reads manifests and checks small headers for extensionless images. Missing drives/books retain
 their metadata and reading state. Incomplete downloads stay in the queue.
 
 - List, adaptive-width grid, and two-, three- or four-column grids. Settings offer
@@ -211,7 +211,7 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.7.0/Hentdows-win32-x64/`.
+under `dist/0.7.1/Hentdows-win32-x64/`, including the source-folder discovery fix.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

@@ -5,6 +5,13 @@ folder, or **Import Hentoid folder** for a copied `.Hentoid` folder. The storage
 manager offers the same actions. Choose the folder on Windows containing the
 source folders and books; individual book folders also work.
 
+Version 0.7.1 scans all descendant folders, including multiple sources and
+numbered source folders such as `exhentai`, `exhentai1`, `exhentai2` and
+`exhentai10`. Metadata in a parent folder no longer stops discovery beneath it.
+Choose the top-level `.Hentoid` folder once; each source bucket does not need to
+be added separately. For a previously registered folder, **Refresh library**
+discovers the previously skipped books while preserving existing book state.
+
 The library lists books from every registered location together. The **Storage**
 selector limits the view to one location, and **Show all books** in the storage
 manager resets filters. Adding or importing a location also resets library filters.
@@ -15,9 +22,11 @@ in the storage manager. Existing queue jobs keep their destinations.
 
 Each book must have local image files and Hentoid JSON metadata. The importer
 recognizes current `contentv2.json`, legacy `content.json`, and oldest `data.json`,
-in that priority order. JPEG, PNG, WebP, AVIF, GIF and BMP images are supported.
+in that priority order. JPEG (including JFIF), PNG, WebP, AVIF, GIF and BMP images
+are supported. Extensionless image files are recognized by their first 64 bytes;
+unrelated extensionless files are ignored. Source files are never renamed.
 Android file URIs and remote image URLs are not followed. Metadata names map to
-local filenames, including extensionless names; page order follows metadata,
+local filenames, ignoring numeric zero padding and extensions; page order follows metadata,
 with remaining local images sorted naturally. Thumbnail files are used as covers
 and excluded from readable pages.
 
@@ -34,7 +43,10 @@ separate copies in different folders remain separate books. Overlapping roots ar
 rejected or reused to prevent scanning the same path twice.
 
 Malformed books are reported without stopping other imports. Missing referenced
-pages produce warnings when local pages are available. Books with no local pages
+pages produce warnings with example unmatched filenames when local pages are available.
+These warnings remain visible on subsequent refreshes until the issue is resolved.
+Invalid JSON is skipped with instructions to recopy or regenerate it in Hentoid.
+Books with no local pages
 are skipped. Unavailable drives retain indexed metadata and can be reconnected
 through the storage manager.
 
@@ -51,3 +63,6 @@ locations, malformed books and preservation of local edits. `npm run smoke:impor
 checks the combined library, location filtering, repeat import, unchanged source
 JSON, reader resume, cancellation and a narrow layout. Set `HENTDOWS_TEST_ASAR` to
 the packaged `resources/app.asar` to run the same check against a build.
+The discovery regression test checks 512 generated books across six source
+folders, including full 250-book buckets, repeated scans, paged results and
+parent metadata that previously blocked traversal.

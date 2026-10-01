@@ -2,8 +2,21 @@ const path=require('node:path');
 const {createHash}=require('node:crypto');
 const {galleryFromUrl}=require('./sites.cjs');
 const MANIFESTS=['contentv2.json','content.json','data.json'];
-const imageName=name=>typeof name==='string'&&name===path.basename(name)&&!/[\\/:\x00-\x1f]/.test(name)&&/\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(name);
+const imageName=name=>typeof name==='string'&&name.length>0&&name===path.basename(name)&&!/[\\/:\x00-\x1f]/.test(name)&&(!name.includes('.')||/\.(jpe?g|jfif|png|webp|avif|gif|bmp)$/i.test(name));
+function hasImageHeader(header){
+  if(header.length<12)return false;
+  if(header.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||
+    (header[0]===255&&header[1]===216&&header[2]===255)||
+    ['GIF87a','GIF89a'].includes(header.toString('ascii',0,6))||header.toString('ascii',0,2)==='BM'||
+    (header.toString('ascii',0,4)==='RIFF'&&header.toString('ascii',8,12)==='WEBP'))return true;
+  if(header.toString('ascii',4,8)==='ftyp'){
+    const boxEnd=Math.min(header.length,header.readUInt32BE(0));
+    for(let i=8;i+4<=boxEnd;i+=4)if(i!==12&&['avif','avis'].includes(header.toString('ascii',i,i+4)))return true;
+  }
+  return false;
+}
 const bare=name=>name.replace(/\.[^.]+$/,'').toLowerCase();
+const unpadded=name=>bare(name).replace(/^0+/,'')||'0';
 const thumbnail=name=>/^(thumb|ext-thumb)/i.test(bare(name));
 const number=(value,min=0,max=Number.MAX_SAFE_INTEGER)=>Number.isSafeInteger(value)?Math.max(min,Math.min(max,value)):min;
 const names=['fakku','pururin','hitomi','nhentai','tsumino','hentaicafe','asmhentai','asmhentai_comics','ehentai','fakku2','nexus','muses','doujins','luscious','exhentai','porncomix','hbrowse','hentai2read','hentaifox','mrm','manhwa','imhentai','toonily','allporncomic','pixiv','manhwa18','multporn','simply','hdporncomics','edoujin','ksk','anchira','deviantart','mangago','hiperdex','novelcrow','tmo','kemono','eromanga','yiffer','pawchive','lrr'];
@@ -33,13 +46,16 @@ function parseHentoid(data,images){
   if(data.site==null)data={...data,site:'FAKKU'};
   if((data.imageFiles?.length||0)>100000||images.length>100000)throw new Error('Book exceeds 100000 images.');
   const collator=new Intl.Collator('en',{numeric:true,sensitivity:'base'}),local=images.filter(f=>imageName(f.name)&&Number.isSafeInteger(f.bytes)&&f.bytes>0).sort((a,b)=>collator.compare(a.name,b.name));
-  const exact=new Map(local.map(f=>[f.name.toLowerCase(),f])),stems=new Map();for(const file of local){const key=bare(file.name);if(stems.has(key))stems.set(key,null);else stems.set(key,file);}
-  const metadata=new Map();let missing=0;
+  const exact=new Map(local.map(f=>[f.name.toLowerCase(),f])),stems=new Map(),normalized=new Map();for(const file of local)for(const [map,key] of [[stems,bare(file.name)],[normalized,unpadded(file.name)]]){if(map.has(key))map.set(key,null);else map.set(key,file);}
+  // Hentoid matches page numbers without their zero padding or extension.
+  // Exact names take priority; ambiguous normalized names are never guessed.
+  const findImage=name=>exact.get(name.toLowerCase())||stems.get(name.toLowerCase())||stems.get(bare(name))||normalized.get(unpadded(name));
+  const metadata=new Map(),missing=[];
   for(const img of data.imageFiles||[]){
     if(!img||typeof img!=='object')throw new Error('Invalid Hentoid image entry.');
     const name=String(img.name||'');if(/[\\/:\x00-\x1f]/.test(name)||name==='..'||name==='.')throw new Error('Unsafe image name in Hentoid metadata.');
-    const file=exact.get(name.toLowerCase())||stems.get(name.toLowerCase())||stems.get(bare(name));
-    if(file&&!metadata.has(file.name))metadata.set(file.name,img);else if(name&&!file&&!thumbnail(name))missing++;
+    const file=findImage(name);
+    if(file&&!metadata.has(file.name))metadata.set(file.name,img);else if(name&&!file&&!thumbnail(name))missing.push(name);
   }
   const pages=local.filter(f=>!thumbnail(f.name));
   pages.sort((a,b)=>{const aa=metadata.get(a.name)?.order,bb=metadata.get(b.name)?.order;const orderA=Number.isSafeInteger(aa)?aa:Infinity,orderB=Number.isSafeInteger(bb)?bb:Infinity;return orderA===orderB?collator.compare(a.name,b.name):orderA<orderB?-1:1;});
@@ -47,13 +63,13 @@ function parseHentoid(data,images){
   const files=pages.map((f,index)=>({...f,index}));
   const pageState=pages.map((f,page)=>({page,read:metadata.get(f.name)?.isRead===true||metadata.get(f.name)?.read===true,favourite:metadata.get(f.name)?.favourite===true})).filter(s=>s.read||s.favourite);
   const previous=(data.imageFiles||[]).filter(i=>!thumbnail(String(i.name||''))).sort((a,b)=>(a.order||0)-(b.order||0))[number(data.lastReadPageIndex)];
-  const previousFile=previous&&(exact.get(String(previous.name).toLowerCase())||stems.get(String(previous.name).toLowerCase())||stems.get(bare(String(previous.name))));
+  const previousFile=previous&&findImage(String(previous.name));
   const lastPage=previousFile?Math.max(0,pages.findIndex(f=>f.name===previousFile.name)):number(data.lastReadPageIndex,0,pages.length-1);
   const groups=(Array.isArray(data.groups)?data.groups:[]).filter(g=>g?.groupingId===98&&typeof g.groupName==='string'&&g.groupName.trim()).slice(0,100).map(g=>({name:g.groupName.trim().slice(0,120),position:number(g.order)}));
   return {...source(data),title:data.title.trim().slice(0,2000)||'Untitled',tags:tagsFrom(data),files,cover:local.find(f=>thumbnail(f.name))?.name||local.find(f=>metadata.get(f.name)?.isCover)?.name||files[0].name,
     downloaded:number(data.downloadDate),finished:number(data.downloadCompletionDate||data.downloadDate),uploaded:number(data.uploadDate),
     imported:{favourite:data.favourite===true,rating:number(data.rating,0,5),completed:data.completed===true,reads:number(data.reads),lastRead:number(data.lastReadDate),lastPage,pageState,groups},
-    warnings:missing?[`${missing} referenced page(s) are missing; imported ${files.length} local pages.`]:[]};
+    warnings:missing.length?[`${missing.length} metadata page(s) could not be matched to readable local images; imported ${files.length} local pages. Unmatched names: ${missing.slice(0,3).map(name=>JSON.stringify(name.slice(0,100))).join(', ')}${missing.length>3?', …':''}. Check that all image files were copied.`]:[]};
 }
 function imageSignature(images){const hash=createHash('sha256');for(const image of [...images].sort((a,b)=>a.name.localeCompare(b.name)))hash.update(JSON.stringify([image.name,image.bytes,image.mtimeMs]));return hash.digest('hex');}
-module.exports={MANIFESTS,imageName,parseHentoid,imageSignature};
+module.exports={MANIFESTS,imageName,hasImageHeader,parseHentoid,imageSignature};

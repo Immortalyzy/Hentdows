@@ -1,6 +1,6 @@
 {
   "name": "hentdows",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
   "license": "Apache-2.0",
