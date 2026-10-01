@@ -78,9 +78,9 @@ operations are blocked during a library refresh.
 Removing a location requires confirmation, keeps image files, and removes its
 indexed book metadata. The default download location cannot be removed until
 another default is selected. Existing metadata backup/restore includes the roots.
-Imports currently recognize Hentdows `content.json` manifests. This prepares for
-attaching old libraries; Android Hentoid manifests and arbitrary CBZ/folders still
-need separate format importers.
+At this milestone, imports recognized Hentdows `content.json` manifests only.
+Version 0.7.0 adds [Hentoid JSON and image-folder import](../../hentoid-import.md).
+Arbitrary CBZ/folders still need separate format importers.
 
 ## Validation
 

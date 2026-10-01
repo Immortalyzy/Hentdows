@@ -115,8 +115,12 @@ for reference mapping and remaining download-mode differences.
 ## Library
 
 The app opens in the library. Completed Hentdows downloads are indexed automatically;
-existing download folders are discovered on startup. Use **••• → Add folder** for
-another Hentdows download folder, or **Refresh library** to find filesystem changes.
+registered download folders are discovered on startup. Use **••• → Add library location**
+for another download folder, or **Import Hentoid folder** to select a copied `.Hentoid`
+folder containing book images and JSON metadata. All registered locations appear
+together; the **Storage** selector can narrow the list to one location. Adding a
+location leaves the default destination for new downloads unchanged.
+Use **Refresh library** to find filesystem changes.
 The index reads manifests rather than image bodies. Missing drives/books retain
 their metadata and reading state. Incomplete downloads stay in the queue.
 
@@ -145,11 +149,14 @@ Completed downloads disappear from the queue immediately and their queue records
 are removed after successful library indexing. The library retains their metadata
 and checks for duplicates when enqueueing.
 
-This milestone focuses on Hentdows downloads. Hentoid database/backup import,
-CBZ/PDF libraries, archive conversion, book merge/split, LANraragi integration,
-and advanced book-file editing are not implemented. Browser bookmarks,
-source-specific filters, download ranges and comprehensive ad blocking also remain.
-The download manifest and metadata backup use Hentdows formats.
+Hentoid imports support `contentv2.json`, legacy `content.json`, and `data.json`
+beside local image files. Titles, attributes, stars, favourites, custom groups and
+reading state are imported into Hentdows; repeat imports preserve local edits.
+Images stay in place and import does not rewrite Hentoid files.
+See [Hentoid import notes](docs/hentoid-import.md) for details and limitations.
+Raw Android ObjectBox databases, CBZ/PDF libraries, archive conversion, book
+merge/split, LANraragi integration, download ranges and advanced book-file editing
+are not implemented. Metadata backups use Hentdows' own format.
 
 ## Library and viewer settings
 
@@ -181,6 +188,7 @@ npm run smoke:network
 npm run smoke:queue
 npm run smoke:browser
 npm run smoke:library
+npm run smoke:import
 npm run smoke:reader
 npm run benchmark:library
 npm run package
@@ -202,8 +210,8 @@ does not scan or validate an actual 200–400 GiB image collection.
 Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
-saved profile. The library interaction amendment build is also available locally under
-`dist/0.6.1/Hentdows-win32-x64/` so it can be built while the older copy is running.
+saved profile. The multiple-location and Hentoid import build is also available locally
+under `dist/0.7.0/Hentdows-win32-x64/`.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

@@ -55,6 +55,7 @@
   for(const id of ['storage-manage','settings-storage'])$(id).onclick=()=>run(()=>api.panel('storage'));
   const storageMenu=button('Storage locations',()=>api.panel('storage'));storageMenu.id='library-storage';$('library-menu').append(storageMenu);
   $('storage-add').onclick=()=>run(async()=>{await api.storage('add');await storage();});$('storage-refresh').onclick=()=>run(async()=>{await api.library('scan');await storage();});
+  $('storage-import-hentoid').onclick=()=>run(()=>api.storage('import-hentoid'));$('storage-show-all').onclick=()=>run(()=>api.storage('show-all'));
   $('language-filter').onclick=()=>run(()=>api.navigate(state.languageUrl));
   api.onBrowserBack?.(()=>{if(dialog.open)close();else run(()=>api.command('browser-back'));});
 })();

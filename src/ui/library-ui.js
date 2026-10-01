@@ -55,15 +55,18 @@
     document.querySelector('.library-pager').hidden=prefs().endless;
     $('library-books').style.setProperty('--card-width',prefs().cardWidth+'px');
     save();
-    groups=await call('groups');
+    const [savedGroups,locations]=await Promise.all([call('groups'),call('roots')]);if(stamp!==generation)return;groups=savedGroups;
+    const location=$('library-location');location.replaceChildren();const all=element('option','All storage locations');all.value=0;location.append(all);
+    for(const root of locations){const option=element('option',root.path);option.value=root.id;location.append(option);}
+    if(filters.root&&!locations.some(r=>r.id===filters.root))filters.root=0;location.value=filters.root;
     if(grouping!=='flat'&&!groupLabel) {await loadGroups(stamp);return;}
     const data=await call('query',filters);if(stamp!==generation)return;result=data;
     if(data.offset>=data.total&&data.offset>0){if(prefs().endless){resetScroll();return load();}filters.offset=Math.max(0,Math.ceil(data.total/data.limit)-1)*data.limit;return load();}
     $('library-books').className=view==='list'?'':`grid ${view==='grid'?'auto-grid':view}`;$('library-books').replaceChildren();
-    $('library-total').textContent=`${groupLabel?groupLabel+' · ':''}${data.total.toLocaleString()} books · ${bytes(data.bytes)}`;
+    $('library-total').textContent=`${groupLabel?groupLabel+' · ':''}${data.total.toLocaleString()} books · ${bytes(data.bytes)}${!filters.root?' · All locations':''}`;
     $('library-up').hidden=!groupLabel;$('library-prev').disabled=!data.offset;$('library-next').disabled=data.offset+data.limit>=data.total;
     $('library-page').textContent=data.total?`${Math.floor(data.offset/data.limit)+1} / ${Math.ceil(data.total/data.limit)}`:'0 / 0';
-    if(!data.books.length){const empty=element('div',null,'library-empty');empty.append(element('h2','No books to display'),element('p',filters.query||filters.attrs.length?'Try clearing the search or filters.':'Completed downloads appear here automatically. Add a Hentdows download folder to find existing books.'),button('Add folder',()=>call('import')));$('library-books').append(empty);}
+    if(!data.books.length){const empty=element('div',null,'library-empty');empty.append(element('h2','No books to display'),element('p',filters.query||filters.attrs.length?'Try clearing the search or filters.':'Completed downloads appear here automatically. Add a Hentdows folder or import a Hentoid .Hentoid folder.'),button('Add library location',()=>call('import')),button('Import Hentoid folder',()=>call('importHentoid')));$('library-books').append(empty);}
     for(const book of data.books){
       const row=element('article',null,'book');row.dataset.id=book.id;row.tabIndex=0;row.setAttribute('aria-label',book.title);
       const img=element('img',null,'book-cover');img.src=cover(book.id);img.alt='';img.loading='lazy';img.onerror=()=>{img.removeAttribute('src');img.alt='Cover unavailable';};
@@ -78,7 +81,7 @@
         info.querySelector('h3').hidden=!prefs().gridTitle;
         language.hidden=!prefs().gridLanguage;fav.hidden=!prefs().gridFavourite;rating.hidden=!prefs().gridRating;
         info.querySelector('.book-meta').textContent=[prefs().gridSource?source(book.site):'',prefs().gridStorage?bytes(book.size):''].filter(Boolean).join(' · ');
-        if(prefs().gridSource&&book.source_id){const src=button('↗',async()=>{const full=await call('get',book.id);return api.navigate(full.url);});src.title='View source';bottom.append(src);}
+        if(prefs().gridSource&&book.source_id&&current.sites.some(s=>s.id===book.site)){const src=button('↗',async()=>{const full=await call('get',book.id);return api.navigate(full.url);});src.title='View source';bottom.append(src);}
       }else language.hidden=true;
       info.append(bottom);row.append(img,info);
       row.onclick=event=>{if(event.target.closest('button'))return;if(selected.size){toggle(book.id);return;}clearTimeout(bookClickTimer);bookClickTimer=setTimeout(()=>run(()=>startReader(book.id)),400);};
@@ -105,7 +108,7 @@
     const book=await call('get',id);openDialog(book.title);
     const img=element('img',null,'book-detail-cover');img.src=cover(id);img.alt='';body.append(img,element('p',`${book.author||'Unknown artist'} · ${source(book.site)} · ${book.pages} pages · ${bytes(book.size)}`),element('p',`Downloaded ${date(book.downloaded)}\nFinished ${date(book.finished)} · Uploaded ${date(book.uploaded)}\n${book.reads} reads · ${Math.round(book.progress*100)}% read${book.missing?'\nFiles are unavailable. Reconnect the drive and refresh.':''}`,'detail-stats'));
     const actions=element('div',null,'dialog-actions');actions.append(button(book.reads?'Continue reading':'Read',()=>startReader(id)),button('Read from beginning',()=>startReader(id,0)),button(`Stars: ${book.rating} / 5`,()=>showRating([id],book.rating)),button('Edit',()=>editBook(id)),button('Show files',()=>call('openFolder',id)),button('Select',()=>{selected.add(id);closeDialog();selection();}));
-    if(book.url)actions.append(button('View source',async()=>{closeDialog();await api.navigate(book.url);}));body.append(actions);
+    if(book.url&&current.sites.some(s=>s.id===book.site))actions.append(button('View source',async()=>{closeDialog();await api.navigate(book.url);}));body.append(actions);
     const tags=element('div',null,'book-detail-tags');for(const tag of book.tags)tags.append(button(tag,()=>{closeDialog();filters.query=tag.includes(':')?tag.slice(tag.indexOf(':')+1):tag;$('book-search').value=filters.query;filters.offset=0;return load();}));body.append(tags);
   }
   async function editBook(id){const book=await call('get',id);openDialog('Edit metadata');let title=book.title,tags=book.tags.join('\n');body.append(inputControl('Title',title,v=>title=v));const label=element('label','Tags · one per line (for example artist:name)'),input=element('textarea');input.value=tags;input.oninput=()=>tags=input.value;label.append(input);body.append(label,button('Save',async()=>{await call('update',{ids:[id],patch:{title,tags:tags.split('\n').map(t=>t.trim()).filter(Boolean)}});closeDialog();}));}
@@ -164,6 +167,8 @@
   $('library-filters').onclick=showFilters;$('library-clear').onclick=()=>run(clear);
   $('library-menu-button').onclick=()=>{$('library-menu').hidden=!$('library-menu').hidden;};
   $('library-import').onclick=()=>run(()=>call('import'));$('library-refresh').onclick=()=>run(()=>call('scan'));$('library-cancel-scan').onclick=()=>run(()=>call('cancel'));
+  $('library-import-hentoid').onclick=()=>run(()=>call('importHentoid'));
+  $('library-location').onchange=()=>{const root=Number($('library-location').value);resetScroll();filters={...defaults,attrs:[],excludedTypes:[],root};groupLabel='';grouping='flat';selected.clear();$('book-search').value='';$('library-grouping').value='flat';run(load);};
   $('library-backup').onclick=()=>run(()=>call('backup'));$('library-restore').onclick=()=>run(async()=>{await call('restoreDetached');await call('scan');});
   $('library-restore-backup').onclick=()=>run(()=>call('restoreBackup'));
   $('library-new-group').onclick=()=>run(()=>groupDialog());$('library-save-search').onclick=()=>run(()=>groupDialog(true));$('library-edit-group').onclick=()=>run(()=>groupDialog(false,true));
@@ -173,6 +178,7 @@
   $('library-deselect').onclick=()=>{selected.clear();selection();};$('library-select-page').onclick=()=>{for(const book of result?.books||[])selected.add(book.id);selection();};
   $('library-action').onchange=()=>{const action=$('library-action').value;$('library-action').value='';run(()=>selectionAction(action));};
   api.onLibraryOpen(id=>run(()=>startReader(id)));
+  api.onLibraryAll(()=>run(clear));
   api.onLibraryBack(()=>{if(!contextMenu.hidden)closeContext(true);else if(window.readerUI?.active){if(!window.readerUI.back())closeDialog();}else if(dialog.open)closeDialog();else if(selected.size){selected.clear();selection();}else if(groupLabel){$('library-up').click();}else if(grouping!=='flat')run(clear);else run(()=>api.panel('sources'));});
   window.libraryUI={render:state=>{
     const sig=JSON.stringify(state.librarySettings),changed=settingsSignature!==sig;

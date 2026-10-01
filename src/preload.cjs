@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('hentdows', {
   onQueueBack: callback => ipcRenderer.on('queue:back',callback),
   onBrowserBack:callback=>ipcRenderer.on('browser:back',callback),
   onLibraryOpen: callback => ipcRenderer.on('library:open', (_, id) => callback(id)),
+  onLibraryAll:callback=>ipcRenderer.on('library:all',callback),
   onDownloadFeedback: callback => ipcRenderer.on('app:download-feedback', (_, value) => callback(value)),
   chooseFolder: () => ipcRenderer.invoke('app:choose-folder'),
   openFolder: id => ipcRenderer.invoke('app:open-folder', id),

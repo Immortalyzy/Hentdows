@@ -104,6 +104,16 @@ class LibraryStore {
       this.sql(`INSERT INTO books(${keys.join(',')}) VALUES(${keys.map(() => '?').join(',')}) ON CONFLICT(path) DO UPDATE SET ${keys.filter(k => k !== 'path').map(k => `${k}=excluded.${k}`).join(',')}`).run(...Object.values(fields));
       const id = this.byPath(book.path).id;
       this.reindex(id,title,attrs);
+      if(!old&&book.imported){
+        const meta=book.imported;
+        this.sql('UPDATE books SET favourite=?,rating=?,completed=?,reads=?,last_read=?,last_page=?,progress=? WHERE id=?').run(Number(meta.favourite),meta.rating,Number(meta.completed),meta.reads,meta.lastRead,meta.lastPage,meta.pageState.filter(s=>s.read).length/book.pages,id);
+        for(const state of meta.pageState)this.sql('INSERT INTO page_state(book,page,read,favourite) VALUES(?,?,?,?)').run(id,state.page,Number(state.read),Number(state.favourite));
+        for(const group of meta.groups){
+          this.sql('INSERT OR IGNORE INTO groups(name,position) VALUES(?,(SELECT coalesce(max(position),0)+1 FROM groups))').run(group.name);
+          const saved=this.sql('SELECT id,filters FROM groups WHERE name=?').get(group.name);
+          if(!saved.filters)this.sql('INSERT OR IGNORE INTO book_groups(book,grp,position) VALUES(?,?,?)').run(id,saved.id,group.position);
+        }
+      }
       return id;
     });
   }

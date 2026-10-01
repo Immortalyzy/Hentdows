@@ -2,18 +2,29 @@ const { parentPort,workerData }=require('node:worker_threads');
 const fs=require('node:fs');
 const path=require('node:path');
 const {LibraryStore}=require('./library-store.cjs');
+const {MANIFESTS,imageName,parseHentoid,imageSignature}=require('./hentoid-import.cjs');
 const store=new LibraryStore(workerData.file);
 let scanning=false,cancelScan=false,scanToken=0;
-const imageName=name=>typeof name==='string'&&name===path.basename(name)&&!/[\\/:]/.test(name)&&/\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(name);
 const inside=(root,target)=>{const relative=path.relative(root,target);return relative!==''&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative);};
-function indexDirectory(directory,root,seen=Date.now()) {
+function indexDirectory(directory,root,seen=Date.now(),entries=fs.readdirSync(directory,{withFileTypes:true}),warn=()=>{}) {
   if(store.isDetached(directory)) return false;
-  const filename=path.join(directory,'content.json'), stat=fs.lstatSync(filename);
+  const manifest=MANIFESTS.map(name=>entries.find(e=>e.name.toLowerCase()===name)).find(Boolean);
+  if(!manifest)throw new Error('No supported book metadata found.');
+  const filename=path.join(directory,manifest.name), stat=fs.lstatSync(filename);
   if(stat.isSymbolicLink()||stat.size>32*1024*1024) throw new Error('Invalid book manifest.');
-  const signature=`${stat.size}:${stat.mtimeMs}`,old=store.byPath(directory);
+  const signature=`${manifest.name}:${stat.size}:${stat.mtimeMs}:${fs.statSync(directory).mtimeMs}:${imageSignature(entries.filter(e=>imageName(e.name)).map(e=>({name:e.name})))}`,old=store.byPath(directory);
   if(old?.signature===signature) {store.markSeen(old.id,seen);return false;}
-  const data=JSON.parse(fs.readFileSync(filename,'utf8'));
-  if(data.schemaVersion!==1||data.status!=='complete') return false;
+  const data=JSON.parse(fs.readFileSync(filename,'utf8').replace(/^\uFEFF/,''));
+  if(data.schemaVersion!==1){
+    const images=[];
+    for(const entry of entries.filter(e=>imageName(e.name))){
+      if(entry.isSymbolicLink())throw new Error('Linked images cannot be imported.');
+      if(entry.isFile()){const fileStat=fs.lstatSync(path.join(directory,entry.name));if(fileStat.isFile()&&!fileStat.isSymbolicLink())images.push({name:entry.name,bytes:fileStat.size});}
+    }
+    const book=parseHentoid(data,images);store.index({...book,path:directory,root:root.id,signature,pages:book.files.length,size:book.files.reduce((sum,f)=>sum+f.bytes,0),downloaded:book.downloaded||stat.birthtimeMs,finished:book.finished||stat.mtimeMs,seen});
+    for(const warning of book.warnings)warn(warning);return true;
+  }
+  if(data.status!=='complete') return false;
   if(!Array.isArray(data.files)||!Array.isArray(data.tags)||data.files.length>100000) throw new Error('Invalid book manifest.');
   const files=data.files.filter(f=>!f.ignored).sort((a,b)=>a.index-b.index);
   if(!files.length||files.some(f=>!imageName(f.name)||!Number.isSafeInteger(f.bytes)||f.bytes<0)) throw new Error('Invalid image list.');
@@ -36,8 +47,8 @@ async function scan() {
         let entries;
         try {entries=await fs.promises.readdir(directory,{withFileTypes:true});}
         catch(e) {complete=false;errors.push(`${directory}: ${e.message}`);continue;}
-        if(entries.some(e=>e.name==='content.json'&&e.isFile())) {
-          try {if(indexDirectory(directory,root,scanToken)) added++;else skipped++;}
+        if(entries.some(e=>MANIFESTS.includes(e.name.toLowerCase()))) {
+          try {if(indexDirectory(directory,root,scanToken,entries,message=>errors.push(`${directory}: ${message}`))) added++;else skipped++;}
           catch(e) {complete=false;errors.push(`${directory}: ${e.message}`);}
           checked++;
         } else for(const entry of entries) if(entry.isDirectory()&&!entry.isSymbolicLink()) pending.push(path.join(directory,entry.name));

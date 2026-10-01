@@ -197,6 +197,17 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     }).catch(e => { error = `Library: ${e.message}`; publish(); });
   });
   win.on('resize', layout);
+  function showAllBooks(){panel='library';layout();publish();win.webContents.send('library:all');}
+  async function attachLibraryFolder(hentoid=false){
+    if(libraryScan.running)throw new Error('Wait for the current library refresh to finish before importing.');
+    const result=await dialog.showOpenDialog(win,{title:hentoid?'Import a Hentoid .Hentoid folder':'Add a Hentdows or Hentoid library location',properties:['openDirectory','createDirectory']});
+    if(result.canceled)return;
+    if(libraryScan.running)throw new Error('Wait for the current library refresh to finish before importing.');
+    await library.call('addRoot',result.filePaths[0]);const scan=await library.call('scan');
+    notice=`Library refreshed: ${scan.added} added or updated, ${scan.skipped} unchanged or skipped${scan.errors.length?', '+scan.errors.length+' issue(s) — see the library refresh report':''}.`;
+    if(!scan.checked&&!scan.errors.length)notice='No supported books found. Select the .Hentoid folder containing book folders with JSON metadata and image files.';
+    libraryChanged();showAllBooks();return scan;
+  }
   const handlers = {
     'app:state': () => state(),
     'app:navigate': (_, url) => navigate(url),
@@ -241,11 +252,8 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
     },
     'app:storage':async(_,action,id)=>{
       if(action==='list')return {defaultPath:settings.downloadRoot,locations:await library.call('storage')};
-      if(action==='add'){
-        const selected=await dialog.showOpenDialog(win,{title:'Add a storage location',properties:['openDirectory','createDirectory']});if(selected.canceled)return;
-        if(libraryScan.running)throw new Error('Wait for the current library refresh to finish before adding a location.');
-        await library.call('addRoot',selected.filePaths[0]);libraryChanged();return library.call('scan');
-      }
+      if(action==='add'||action==='import-hentoid')return attachLibraryFolder(action==='import-hentoid');
+      if(action==='show-all'){showAllBooks();return;}
       const root=(await library.call('roots')).find(r=>r.id===id);if(!root)throw new Error('Storage location not found.');
       const contains=directory=>{const rel=path.relative(root.path,path.resolve(directory));return !rel||rel!=='..'&&!rel.startsWith('..'+path.sep)&&!path.isAbsolute(rel);};
       if(action==='default'){
@@ -310,11 +318,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (['query','get','suggestions','groups','roots','facets','adjacent'].includes(action)) return library.call(action, input);
       if (['update','group','read','shuffle','restoreDetached'].includes(action)) { const result = await library.call(action, input); libraryChanged(); return result; }
       if (action === 'scan' || action === 'cancel') return library.call(action);
-      if (action === 'import') {
-        const result = await dialog.showOpenDialog(win, { title: 'Add a Hentdows download folder', properties: ['openDirectory'] });
-        if (!result.canceled) { await library.call('addRoot', result.filePaths[0]); return library.call('scan'); }
-        return;
-      }
+      if (action === 'import'||action==='importHentoid') return attachLibraryFolder(action==='importHentoid');
       if (action === 'openFolder') {
         const book = await library.call('get', input);
         const result = await shell.openPath(book.path); if (result) throw new Error(result); return;
