@@ -13,7 +13,7 @@
   function showContext(event,book,row){
     event.preventDefault();event.stopPropagation();clearTimeout(bookClickTimer);
     if(!selected.has(book.id))selected=new Set([book.id]);selection();contextTarget=row;contextMenu.replaceChildren();
-    for(const option of $('library-action').options){if(!option.value)continue;const item=button(option.textContent,()=>{closeContext();return selectionAction(option.value);});item.dataset.action=option.value;item.setAttribute('role','menuitem');item.disabled=option.value==='edit'&&selected.size!==1;contextMenu.append(item);}
+    for(const option of $('library-action').options){if(!option.value)continue;const item=button(option.textContent,()=>{closeContext();return selectionAction(option.value);});item.dataset.action=option.value;item.setAttribute('role','menuitem');item.disabled=option.disabled;contextMenu.append(item);}
     contextMenu.hidden=false;const bounds=row.getBoundingClientRect(),x=event.clientX||bounds.left+16,y=event.clientY||bounds.top+16;
     contextMenu.style.left=Math.max(6,Math.min(x,innerWidth-contextMenu.offsetWidth-6))+'px';contextMenu.style.top=Math.max(6,Math.min(y,innerHeight-contextMenu.offsetHeight-6))+'px';contextMenu.querySelector('button:not(:disabled)')?.focus();
   }
@@ -39,7 +39,8 @@
   function closeDialog() {window.readerUI?.close();reader=null;dialog.close();if(active)run(load);}
   $('library-dialog-close').onclick=closeDialog;
   dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
-  function selection() {$('library-selection').hidden=!selected.size;$('library-selected').textContent=`${selected.size} selected`;for(const el of $('library-books').querySelectorAll('.book'))el.classList.toggle('selected',selected.has(Number(el.dataset.id)));}
+  function selection() {$('library-selection').hidden=!selected.size;$('library-selected').textContent=`${selected.size} selected`;for(const el of $('library-books').querySelectorAll('.book'))el.classList.toggle('selected',selected.has(Number(el.dataset.id)));$('library-action').querySelector('[value="edit"]').disabled=selected.size!==1;$('library-action').querySelector('[value="source"]').disabled=selected.size!==1||!result?.books.find(b=>selected.has(b.id))?.sourceUrl;}
+  async function viewSource(id){closeDialog();await call('viewSource',id);}
   function toggle(id) {selected.has(id)?selected.delete(id):selected.add(id);selection();}
   async function load() {
     if(!active)return;
@@ -81,7 +82,7 @@
         info.querySelector('h3').hidden=!prefs().gridTitle;
         language.hidden=!prefs().gridLanguage;fav.hidden=!prefs().gridFavourite;rating.hidden=!prefs().gridRating;
         info.querySelector('.book-meta').textContent=[prefs().gridSource?source(book.site):'',prefs().gridStorage?bytes(book.size):''].filter(Boolean).join(' · ');
-        if(prefs().gridSource&&book.source_id&&current.sites.some(s=>s.id===book.site)){const src=button('↗',async()=>{const full=await call('get',book.id);return api.navigate(full.url);});src.title='View source';bottom.append(src);}
+        if(prefs().gridSource&&book.sourceUrl){const src=button('↗',()=>viewSource(book.id));src.title='View source';src.setAttribute('aria-label','View source');bottom.append(src);}
       }else language.hidden=true;
       info.append(bottom);row.append(img,info);
       row.onclick=event=>{if(event.target.closest('button'))return;if(selected.size){toggle(book.id);return;}clearTimeout(bookClickTimer);bookClickTimer=setTimeout(()=>run(()=>startReader(book.id)),400);};
@@ -108,7 +109,7 @@
     const book=await call('get',id);openDialog(book.title);
     const img=element('img',null,'book-detail-cover');img.src=cover(id);img.alt='';body.append(img,element('p',`${book.author||'Unknown artist'} · ${source(book.site)} · ${book.pages} pages · ${bytes(book.size)}`),element('p',`Downloaded ${date(book.downloaded)}\nFinished ${date(book.finished)} · Uploaded ${date(book.uploaded)}\n${book.reads} reads · ${Math.round(book.progress*100)}% read${book.missing?'\nFiles are unavailable. Reconnect the drive and refresh.':''}`,'detail-stats'));
     const actions=element('div',null,'dialog-actions');actions.append(button(book.reads?'Continue reading':'Read',()=>startReader(id)),button('Read from beginning',()=>startReader(id,0)),button(`Stars: ${book.rating} / 5`,()=>showRating([id],book.rating)),button('Edit',()=>editBook(id)),button('Show files',()=>call('openFolder',id)),button('Select',()=>{selected.add(id);closeDialog();selection();}));
-    if(book.url&&current.sites.some(s=>s.id===book.site))actions.append(button('View source',async()=>{closeDialog();await api.navigate(book.url);}));body.append(actions);
+    const sourceButton=button('View source',()=>viewSource(id));sourceButton.disabled=!book.sourceUrl;sourceButton.title=book.sourceUrl||'No saved web page address';actions.append(sourceButton);body.append(actions);
     const tags=element('div',null,'book-detail-tags');for(const tag of book.tags)tags.append(button(tag,()=>{closeDialog();filters.query=tag.includes(':')?tag.slice(tag.indexOf(':')+1):tag;$('book-search').value=filters.query;filters.offset=0;return load();}));body.append(tags);
   }
   async function editBook(id){const book=await call('get',id);openDialog('Edit metadata');let title=book.title,tags=book.tags.join('\n');body.append(inputControl('Title',title,v=>title=v));const label=element('label','Tags · one per line (for example artist:name)'),input=element('textarea');input.value=tags;input.oninput=()=>tags=input.value;label.append(input);body.append(label,button('Save',async()=>{await call('update',{ids:[id],patch:{title,tags:tags.split('\n').map(t=>t.trim()).filter(Boolean)}});closeDialog();}));}
@@ -150,6 +151,7 @@
     const patch={favourite:{favourite:true},unfavourite:{favourite:false},complete:{completed:true},incomplete:{completed:false},reset:{resetRead:true}}[action];
     if(patch)await call('update',{ids,patch});
     else if(action==='edit'){if(ids.length!==1)throw new Error('Select one book to edit.');return editBook(ids[0]);}
+    else if(action==='source'){if(ids.length!==1)throw new Error('Select one book to view its source.');return viewSource(ids[0]);}
     else if(action==='rate'){const book=ids.length===1?await call('get',ids[0]):null;showRating(ids,book?.rating??null);return;}
     else if(action==='group'){openDialog('Add to custom group');for(const group of groups.filter(g=>!g.filters))body.append(button(group.name,async()=>{await call('group',{action:'assign',id:group.id,ids});closeDialog();}));if(!groups.some(g=>!g.filters))body.append(element('p','Create a custom group from the library menu first.'));return;}
     else if(action==='ungroup')await call('group',{action:'remove',id:filters.group,ids});

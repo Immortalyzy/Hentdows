@@ -137,6 +137,10 @@ their metadata and reading state. Incomplete downloads stay in the queue.
 - Single-click a book to read. Use its small **⋯** button for details and actions. Double-click to select, then edit
   metadata, rate, mark completed, change groups, reorder, remove from the index,
   or move the book folder to the Recycle Bin. Removal/deletion asks for confirmation.
+- **View source** revisits a book's saved web page from reader **⋯**, book details,
+  the right-click menu or single-book selection actions. Supported sources open
+  inside Hentdows with the saved browser session; other saved HTTP(S) addresses
+  open in your default browser. Books without a usable address disable the action.
 - A full-window reader records viewed pages, reading sessions and favourite pages.
   Mouse wheel and arrow keys turn pages; Esc closes the reader, selection or group.
 - **Back up metadata / Restore metadata backup** preserves the SQLite index,
@@ -194,6 +198,7 @@ npm run smoke:library
 npm run smoke:import
 npm run smoke:reader
 npm run smoke:reader-transitions
+npm run smoke:book-source
 npm run benchmark:library
 npm run package
 ```
@@ -215,7 +220,8 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.7.1/Hentdows-win32-x64/`, including the source-folder discovery fix.
+under `dist/0.8.0/Hentdows-win32-x64/`, including smooth reader transitions and
+the View source action.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

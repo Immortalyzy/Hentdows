@@ -319,6 +319,12 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (['update','group','read','shuffle','restoreDetached'].includes(action)) { const result = await library.call(action, input); libraryChanged(); return result; }
       if (action === 'scan' || action === 'cancel') return library.call(action);
       if (action === 'import'||action==='importHentoid') return attachLibraryFolder(action==='importHentoid');
+      if(action==='viewSource'){
+        const book=await library.call('get',input);if(!book.sourceUrl)throw new Error('This book has no saved web page address.');
+        if(allowedNavigation(book.sourceUrl))await navigate(book.sourceUrl);
+        else await shell.openExternal(book.sourceUrl);
+        return;
+      }
       if (action === 'openFolder') {
         const book = await library.call('get', input);
         const result = await shell.openPath(book.path); if (result) throw new Error(result); return;

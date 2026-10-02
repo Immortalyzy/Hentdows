@@ -124,6 +124,7 @@
     action(s.sliding?'Ⅱ':'▶','Slideshow',()=>{if(s.sliding){stopSlide();draw();}else startSlide();});
     const more=element('details',null,'reader-more'),summary=element('summary','⋯');summary.title='Reader actions';more.append(summary);
     const actions=element('div',null,'reader-extra');
+    const sourceButton=button('View source',async()=>{stopSlide();s.onClose();await call('viewSource',s.book.id);});sourceButton.disabled=!s.book.sourceUrl;sourceButton.title=s.book.sourceUrl||'No saved web page address';actions.append(sourceButton);
     actions.append(button('Zoom +',()=>zoom(s.zoom+1)),button('Zoom −',()=>zoom(Math.max(1,s.zoom-1))),button('Reset zoom',()=>zoom(1)),button('Favourite page',async()=>{
       const old=s.book.pageState.find(p=>p.page===s.page)?.favourite;await call('read',{id:s.book.id,page:s.page,favourite:!old});s.book.pageState=s.book.pageState.filter(p=>p.page!==s.page);s.book.pageState.push({page:s.page,favourite:!old});more.open=false;
     }),button('Delete book',async()=>{

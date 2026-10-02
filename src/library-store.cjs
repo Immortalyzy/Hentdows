@@ -2,9 +2,10 @@ const { DatabaseSync } = require('node:sqlite');
 const { randomInt } = require('node:crypto');
 const path = require('node:path');
 const {galleryFromUrl}=require('./sites.cjs');
+const {bookSourceUrl}=require('./book-source.cjs');
 
 const SORTS = { title: 'title_key', artist: 'author_key', pages: 'pages', downloaded: 'downloaded', finished: 'finished', uploaded: 'uploaded', readDate: 'last_read', reads: 'reads', size: 'size', progress: 'progress', average: 'average_size', random: 'shuffle', custom: 'custom_order' };
-const SUMMARY = 'b.id,b.title,b.author,b.site,b.source_id,b.pages,b.size,b.favourite,b.rating,b.completed,b.reads,b.progress,b.missing,b.cover,b.last_page,b.downloaded,b.finished,b.tags';
+const SUMMARY = 'b.id,b.title,b.author,b.site,b.source_id,b.url,b.pages,b.size,b.favourite,b.rating,b.completed,b.reads,b.progress,b.missing,b.cover,b.last_page,b.downloaded,b.finished,b.tags';
 const norm = value => String(value || '').normalize('NFKC').toLowerCase();
 const integer = (value, min, max, fallback) => Number.isInteger(value) && value >= min && value <= max ? value : fallback;
 const TYPES = ['artist','circle','series','character','language','tag','category','uploader','translator','publisher'];
@@ -181,13 +182,13 @@ class LibraryStore {
     }
     const stats=this.sql(`SELECT count(*) total,coalesce(sum(b.size),0) bytes FROM books b WHERE ${sql}`).get(...args);
     const books=this.sql(`SELECT ${SUMMARY} FROM books b WHERE ${sql} ORDER BY ${order} ${direction}${tie},b.id ASC LIMIT ? OFFSET ?`).all(...args,...orderArgs,f.limit,f.offset);
-    return {...stats,books:books.map(b=>({...b,language:JSON.parse(b.tags).find(t=>t.startsWith('language:'))?.slice(9)||'',tags:JSON.parse(b.tags).slice(0,8)})),offset:f.offset,limit:f.limit};
+    return {...stats,books:books.map(b=>({...b,sourceUrl:bookSourceUrl(b),language:JSON.parse(b.tags).find(t=>t.startsWith('language:'))?.slice(9)||'',tags:JSON.parse(b.tags).slice(0,8)})),offset:f.offset,limit:f.limit};
   }
   get(id) {
     if (!Number.isInteger(id)) throw new Error('Invalid book.');
     const book=this.sql('SELECT * FROM books WHERE id=?').get(id);
     if (!book) throw new Error('Book not found.');
-    return {...book,files:JSON.parse(book.files),tags:JSON.parse(book.tags),groups:this.sql('SELECT grp FROM book_groups WHERE book=?').all(id).map(g=>g.grp),pageState:this.sql('SELECT page,read,favourite FROM page_state WHERE book=?').all(id)};
+    return {...book,sourceUrl:bookSourceUrl(book),files:JSON.parse(book.files),tags:JSON.parse(book.tags),groups:this.sql('SELECT grp FROM book_groups WHERE book=?').all(id).map(g=>g.grp),pageState:this.sql('SELECT page,read,favourite FROM page_state WHERE book=?').all(id)};
   }
   suggestions({kind='tag',query='',sort='count'}={}) {
     if (kind === 'date') return this.sql("SELECT date(downloaded/1000,'unixepoch','localtime') name,count(*) count FROM books GROUP BY name ORDER BY name DESC").all();
