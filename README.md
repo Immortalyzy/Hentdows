@@ -22,7 +22,8 @@ Electron supplies Chromium; no separate Chrome installation is needed.
   or selection actions. Clear resets a rating to zero.
 - Right-click a library book for the selection actions, with Delete first.
   Right-clicking inside a selection acts on all selected books; outside it selects
-  only the clicked book. Delete still asks before moving files to the Recycle Bin.
+  only the clicked book. Delete asks once, then uses the Recycle Bin when possible
+  or permanently deletes the book folder if recycling fails (such as on USB/network drives).
 
 - Persistent bookmarks with search, source filters, editing, ordering, custom
   homepages, and JSON import/export. Use the bottom star or Ctrl+B.
@@ -136,7 +137,8 @@ their metadata and reading state. Incomplete downloads stay in the queue.
   current search filters as a dynamic group. Groups and books are paged.
 - Single-click a book to read. Use its small **⋯** button for details and actions. Double-click to select, then edit
   metadata, rate, mark completed, change groups, reorder, remove from the index,
-  or move the book folder to the Recycle Bin. Removal/deletion asks for confirmation.
+  or delete the book folder. Deletion uses the Recycle Bin when possible and falls
+  back to permanent deletion if recycling fails. Removal/deletion asks for confirmation.
 - **View source** revisits a book's saved web page from reader **⋯**, book details,
   the right-click menu or single-book selection actions. Supported sources open
   inside Hentdows with the saved browser session; other saved HTTP(S) addresses

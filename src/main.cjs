@@ -15,6 +15,7 @@ const { LIBRARY_SETTINGS, VIEWER_SETTINGS, validatePreferences } = require('./re
 const { createDuplicateChecker } = require('./download-check.cjs');
 const { identity } = require('./duplicates.cjs');
 const { Library } = require('./library.cjs');
+const { deleteBookFolder } = require('./delete-book.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'hentdows', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -332,20 +333,19 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (action === 'detach' || action === 'delete') {
         if (!Array.isArray(input) || !input.length || input.length > 1000) throw new Error('Select between 1 and 1000 books.');
         const books = await Promise.all(input.map(id => library.call('get', id)));
-        const message = action === 'delete' ? `Move ${books.length} book folder(s) to the Recycle Bin?` : `Remove ${books.length} book(s) from the library? Files will be kept.`;
-        const result = await dialog.showMessageBox(win, { type: 'warning', title: 'Library', message, buttons: ['Cancel', action === 'delete' ? 'Move to Recycle Bin' : 'Remove from library'], defaultId: 0, cancelId: 0 });
+        const message = action === 'delete' ? `Delete ${books.length} book folder(s)?` : `Remove ${books.length} book(s) from the library? Files will be kept.`;
+        const detail = action === 'delete' ? 'Use the Recycle Bin when possible. If this fails (for example on a USB or network drive), the book folders and their contents will be permanently deleted. Permanent deletion cannot be undone.' : '';
+        const result = await dialog.showMessageBox(win, { type: 'warning', title: 'Library', message, detail, buttons: ['Cancel', action === 'delete' ? 'Delete books' : 'Remove from library'], defaultId: 0, cancelId: 0 });
         if (result.response !== 1) return false;
-        for (const book of books) {
+        try { for (const book of books) {
           if (action === 'delete') {
             if (queue.jobs.some(j => path.resolve(j.directory) === book.path && ['queued','waiting','resolving','downloading'].includes(j.status))) throw new Error('Pause this book’s download before deleting it.');
-            const roots = await library.call('roots'), real = fs.realpathSync(book.path);
-            const root = roots.find(r => r.id === book.root), relative = root && path.relative(root.path, real);
-            if (!relative || relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(path.join(real, 'content.json'))) throw new Error('Cannot delete a library root or a folder outside the library.');
-            await shell.trashItem(real);
+            const roots = await library.call('roots');
+            await deleteBookFolder(book, roots.find(r => r.id === book.root), directory=>shell.trashItem(directory));
           }
           await library.call('detach', [book.id]);
-        }
-        libraryChanged(); return true;
+        } } finally { libraryChanged(); }
+        return true;
       }
       if (action === 'backup') {
         const result = await dialog.showSaveDialog(win, { title: 'Back up library metadata', defaultPath: 'Hentdows-library.sqlite', filters: [{ name: 'SQLite library backup', extensions: ['sqlite'] }] });
