@@ -17,7 +17,7 @@ app.whenReady().then(async()=>{
   fs.writeFileSync(path.join(folder,'content.json'),JSON.stringify({schemaVersion:1,status:'complete',title:'Synthetic transition book',site:'ehentai',sourceId:'1',tags:[],files}));
   const spreadFolder=path.join(downloads,'spread-fixture');fs.mkdirSync(spreadFolder);for(const file of files)fs.copyFileSync(path.join(folder,file.name),path.join(spreadFolder,file.name));
   fs.writeFileSync(path.join(spreadFolder,'content.json'),JSON.stringify({schemaVersion:1,status:'complete',title:'Synthetic spread book',site:'ehentai',sourceId:'2',tags:[],files}));
-  fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({downloadRoot:downloads,viewer:{direction:'ltr',twoPages:false,readThreshold:1}}));
+  fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({downloadRoot:downloads,viewer:{direction:'ltr',twoPages:false,readThreshold:1,upscale:0,preloadPages:0}}));
   instance=await createApplication({show:false,offscreen:true,dataPath:root});const {win,library}=instance,js=code=>win.webContents.executeJavaScript(code);
   await instance.libraryReady;let id=(await library.call('query',{query:'Synthetic transition book'})).books[0].id;
   const originalCall=library.call.bind(library);library.call=async(method,input)=>{

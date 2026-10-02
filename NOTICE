@@ -19,3 +19,10 @@ drawable/ic_site_exhentai.xml, and drawable/ic_site_hitomi.xml, for HTTP 404
 placeholders. scripts/render-placeholders.cjs reproduces those conversions.
 
 Original copyright and license notices remain in the reference source tree.
+
+The reader bundles Anime4K-v3.2 Upscale CNN x2 S by bloc97 (2019-2021),
+under the MIT license. Its weights and full license are preserved in
+src/ui/vendor/Anime4K_Upscale_CNN_x2_S.glsl. The WebGL host is original
+Hentdows code; it adapts the upstream mpv texture helpers for a worker.
+Upstream: https://github.com/bloc97/Anime4K
+See src/ui/vendor/README.md for the pinned revision and checksum.

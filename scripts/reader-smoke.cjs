@@ -40,6 +40,8 @@ app.whenReady().then(async()=>{
   await click(`.book[data-id="${id}"] .book-details`);await until(()=>js('document.querySelector("#library-dialog-content").textContent.includes("Read from beginning")'),'details button');
   await click('#library-dialog-close');await click(`.book[data-id="${id}"]`);
   await until(()=>js('document.querySelector(".reader-image")?.complete===true'),'direct reader');
+  await until(()=>js('!!readerImages.status.unavailable'),'GPU-disabled original fallback');
+  assert.equal(await js('document.querySelector("[data-upscaled]")===null'),true);
   await until(async()=>(await library.call('get',id)).progress>0,'page recorded');assert.equal((await library.call('get',id)).reads,0);
   await js('document.querySelector(".reader-stage").dispatchEvent(new WheelEvent("wheel",{deltaY:120,cancelable:true}))');
   await until(()=>js('document.querySelector(".reader-page-input").value==="2"'),'wheel');

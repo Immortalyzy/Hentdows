@@ -180,6 +180,21 @@ Paged reading keeps the previous image visible until the next page has loaded
 and decoded. Two-page spreads change together. Failed page loads retain the
 previous image and offer Retry; rapid navigation cannot display a stale page.
 
+Anime4K upscaling is enabled at **2×** by default. The original appears first,
+then the enhanced page replaces it. The GPU model stays loaded while the app is
+open, including between books. The next **three pages** are decoded and upscaled
+ahead of time. Viewer → Rendering offers Off / 2× / 4× and 0 / 2 / 3-page preload.
+4× runs the small Anime4K network twice. Pages with a longest side of 2048 pixels
+or more, or outputs above 40 megapixels, remain original. A missing or lost GPU
+also leaves originals available.
+
+The session cache allows 64 MiB for decoded originals and 512 MiB for enhanced
+pages; distant lookahead is reduced when necessary, especially at 4×. Current
+display canvases and GPU working textures use additional memory. Page caches
+clear when the reader closes, while compiled shaders remain resident. No
+upscaled files are saved to the library. See the
+[Anime4K implementation and measurements](docs/performance/anime4k-reader-2026-10-02.md).
+
 Windows uses the agreed configurable keyboard equivalents for Android volume
 buttons, the full window area, and Chromium's native renderer/color depth.
 Hentdows downloads contain one chapter per book. Chapter navigation therefore has
@@ -199,6 +214,7 @@ npm run smoke:import
 npm run smoke:reader
 npm run smoke:reader-transitions
 npm run smoke:book-source
+npm run smoke:upscale # Requires a hardware GPU; generated fixtures only
 npm run benchmark:library
 npm run package
 ```
@@ -220,8 +236,8 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.8.0/Hentdows-win32-x64/`, including smooth reader transitions and
-the View source action.
+under `dist/0.9.0/Hentdows-win32-x64/`, including smooth reader transitions,
+the View source action, and persistent Anime4K upscaling with page preloading.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)

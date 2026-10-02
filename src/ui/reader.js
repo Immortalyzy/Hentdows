@@ -3,9 +3,34 @@
   const call=(action,input)=>api.library(action,input),prefs=()=>current.viewerSettings;
   let session=null,version=0,slideTimer,wheelTotal=0,wheelAt=0,lastWheel=0,clickTimer,holdTimer;
   const url=(id,page)=>`hentdows://app/library/${id}/${page}`;
+  function planImages(s){
+    if(s.gallery){readerImages.clear();return;}
+    const visible=prefs().direction!=='vertical'&&prefs().twoPages?2:1,count=visible+prefs().preloadPages;
+    const urls=Array.from({length:Math.min(count,s.book.files.length-s.page)},(_,i)=>url(s.book.id,s.page+i));
+    readerImages.plan(prefs().upscale?urls:urls.slice(visible),prefs().upscale);
+  }
+  function enhance(s,page,host){
+    const original=host._original,display=host.firstElementChild,factor=prefs().upscale;
+    if(!original||!factor||display?.dataset.upscaled===String(factor))return;
+    // Two animation frames ensure a paint with the original, including cache hits.
+    requestAnimationFrame(()=>requestAnimationFrame(async()=>{
+      const active=()=>session===s&&host.isConnected&&host.firstElementChild===display&&prefs().upscale===factor;
+      if(!active())return;
+      const bitmap=await readerImages.get(url(s.book.id,page));
+      if(!bitmap||!active())return;
+      try{
+        const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+        canvas.naturalWidth=bitmap.width;canvas.naturalHeight=bitmap.height;canvas.className='reader-image';canvas.alt=original.alt;canvas.setAttribute('alt',original.alt);canvas.setAttribute('aria-label',original.alt);
+        canvas.getContext('2d').drawImage(bitmap,0,0);
+        const enhanced=processed(canvas,host,original);enhanced.dataset.upscaled=String(factor);
+        // Crop and rotation use the original framing to avoid a late layout jump.
+        if(active())display.replaceWith(enhanced);
+      }catch{/* A lost GPU context or an evicted bitmap leaves the original visible. */}
+    }));
+  }
   function stopSlide(){clearInterval(slideTimer);slideTimer=null;if(session)session.sliding=false;}
   function dispose(){clearTimeout(clickTimer);clearTimeout(holdTimer);session?.observer?.disconnect();}
-  function close(){version++;stopSlide();dispose();session=null;body.replaceChildren();dialog.classList.remove('reader','reader-controls-hidden');run(()=>api.readerActive(false));}
+  function close(){version++;stopSlide();dispose();session=null;readerImages.clear();body.replaceChildren();dialog.classList.remove('reader','reader-controls-hidden');run(()=>api.readerActive(false));}
   async function open(id,page,filters,onClose){
     close();const token=version,book=await call('get',id);if(token!==version)return;
     if(!book.files.length)throw new Error('This book has no readable pages.');
@@ -25,13 +50,13 @@
   }
   // Image processing is display-only. Analyze a small bitmap, then crop/rotate
   // into a bounded canvas; the download on disk is never changed.
-  function processed(image,stage){
+  function processed(image,stage,reference=image){
     const p=prefs(),rotate=p.rotate!=='off'&&((image.naturalWidth>image.naturalHeight)!==(stage.clientWidth>stage.clientHeight));
     if(!p.smartCrop&&!rotate)return image;
     let x=0,y=0,w=image.naturalWidth,h=image.naturalHeight;
     if(p.smartCrop){
       const probe=document.createElement('canvas'),scale=Math.min(1,256/Math.max(w,h));probe.width=Math.max(1,Math.round(w*scale));probe.height=Math.max(1,Math.round(h*scale));
-      const ctx=probe.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,probe.width,probe.height);
+      const ctx=probe.getContext('2d',{willReadFrequently:true});ctx.drawImage(reference,0,0,probe.width,probe.height);
       const {data}=ctx.getImageData(0,0,probe.width,probe.height),W=probe.width,H=probe.height;
       const same=(i,j)=>Math.abs(data[i]-data[j])<18&&Math.abs(data[i+1]-data[j+1])<18&&Math.abs(data[i+2]-data[j+2])<18;
       const row=(r,ref)=>{for(let c=0;c<W;c++)if(!same((r*W+c)*4,ref))return false;return true;};
@@ -58,7 +83,7 @@
           await image.decode();if(!active()){resolve(false);return;}
           const display=processed(image,host);if(display!==image)image.replaceWith(display);
           if(prefs().direction==='vertical'&&!s.gallery)host.style.aspectRatio=`${display===image?image.naturalWidth:display.width} / ${display===image?image.naturalHeight:display.height}`;
-          host.dataset.loaded='true';if(recordOnLoad){if(visible)run(()=>record(s,page));else visiblePage(s);}resolve(true);
+          host._original=image;host.dataset.loaded='true';if(recordOnLoad){if(visible)run(()=>record(s,page));else visiblePage(s);enhance(s,page,host);}resolve(true);
         }catch{failed();}
       };
       image.onerror=failed;image.src=url(s.book.id,page);
@@ -69,11 +94,11 @@
     if(session!==s||s.gallery||prefs().direction!=='vertical')return;
     const stage=body.querySelector('.reader-stage'),rect=stage.getBoundingClientRect(),point=rect.top+Math.min(rect.height/2,150);
     for(const host of stage.querySelectorAll('.vertical-page[data-loaded="true"]')){
-      const r=host.getBoundingClientRect();if(r.top<=point&&r.bottom>point){s.page=Number(host.dataset.page);badge();run(()=>record(s,s.page));break;}
+      const r=host.getBoundingClientRect();if(r.top<=point&&r.bottom>point){const changed=s.page!==Number(host.dataset.page);s.page=Number(host.dataset.page);if(changed){planImages(s);for(const nearby of stage.querySelectorAll('.vertical-page[data-loaded="true"]'))enhance(s,Number(nearby.dataset.page),nearby);}badge();run(()=>record(s,s.page));break;}
     }
   }
   function draw(){
-    const s=session;if(!s)return;dispose();const drawId=s.drawId=(s.drawId||0)+1;
+    const s=session;if(!s)return;dispose();planImages(s);const drawId=s.drawId=(s.drawId||0)+1;
     const previous=!s.gallery&&prefs().direction!=='vertical'?body.querySelector('.reader-spread:not(.reader-pending)'):null;
     body.replaceChildren();dialog.classList.remove('reader-controls-hidden');s.loading=false;
     const p=prefs();const stage=element('div',null,'reader-stage');stage.tabIndex=0;stage.setAttribute('aria-label',s.book.title);
@@ -85,7 +110,7 @@
     else if(p.direction==='vertical'){
       s.observer=new IntersectionObserver(entries=>{for(const entry of entries){const host=entry.target;
         if(entry.isIntersecting&&!host.children.length)pageImage(s,Number(host.dataset.page),host,false);
-        else if(!entry.isIntersecting&&host.children.length){host.replaceChildren();delete host.dataset.loaded;}
+        else if(!entry.isIntersecting&&host.children.length){host.replaceChildren();delete host._original;delete host.dataset.loaded;}
       }},{root:stage,rootMargin:'900px 0px'});
       const fragment=document.createDocumentFragment();
       for(let i=0;i<s.book.files.length;i++){const host=element('div',null,'vertical-page');host.dataset.page=i;host.style.aspectRatio='0.7';fragment.append(host);s.observer.observe(host);}
@@ -104,6 +129,7 @@
         if(loaded.every(Boolean)){
           previous?.remove();status.remove();spread.classList.remove('reader-pending');zoom(s.zoom);
           for(const page of pages)run(()=>record(s,page));
+          pages.forEach((page,i)=>enhance(s,page,spread.children[i]));
         }else{
           if(previous)spread.remove();else spread.classList.remove('reader-pending');
           status.replaceChildren(element('span','Page unavailable. Check the book folder.'),button('Retry',draw));
@@ -124,6 +150,8 @@
     action(s.sliding?'Ⅱ':'▶','Slideshow',()=>{if(s.sliding){stopSlide();draw();}else startSlide();});
     const more=element('details',null,'reader-more'),summary=element('summary','⋯');summary.title='Reader actions';more.append(summary);
     const actions=element('div',null,'reader-extra');
+    const scalingStatus=element('span',null,'reader-scaling-status');actions.append(scalingStatus);
+    more.ontoggle=()=>{if(!more.open)return;const status=readerImages.status;scalingStatus.textContent=!prefs().upscale?'Original images':status.unavailable?'Original images · GPU scaling unavailable':!status.ready?'Preparing Anime4K…':`Anime4K ${prefs().upscale}× · original first`;scalingStatus.title=status.unavailable||'Scaling and preloading are adjustable in Viewer settings.';};
     const sourceButton=button('View source',async()=>{stopSlide();s.onClose();await call('viewSource',s.book.id);});sourceButton.disabled=!s.book.sourceUrl;sourceButton.title=s.book.sourceUrl||'No saved web page address';actions.append(sourceButton);
     actions.append(button('Zoom +',()=>zoom(s.zoom+1)),button('Zoom −',()=>zoom(Math.max(1,s.zoom-1))),button('Reset zoom',()=>zoom(1)),button('Favourite page',async()=>{
       const old=s.book.pageState.find(p=>p.page===s.page)?.favourite;await call('read',{id:s.book.id,page:s.page,favourite:!old});s.book.pageState=s.book.pageState.filter(p=>p.page!==s.page);s.book.pageState.push({page:s.page,favourite:!old});more.open=false;
@@ -145,7 +173,7 @@
   function go(page){
     const s=session;if(!s||!Number.isInteger(page)||page<0||page>=s.book.files.length)return;
     s.page=page;if(s.gallery){s.gallery=false;draw();return;}
-    if(prefs().direction==='vertical'){body.querySelector(`.vertical-page[data-page="${page}"]`)?.scrollIntoView({block:'start'});badge();return;}
+    if(prefs().direction==='vertical'){planImages(s);const host=body.querySelector(`.vertical-page[data-page="${page}"]`);host?.scrollIntoView({block:'start'});if(host)enhance(s,page,host);badge();return;}
     if(!prefs().keepZoom)s.zoom=1;draw();
   }
   async function step(delta){

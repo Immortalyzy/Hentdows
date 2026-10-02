@@ -50,7 +50,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
         try { const file = await library.call('asset', { id: Number(asset[1]), page: asset[2] === 'cover' ? 'cover' : Number(asset[2]) }); return net.fetch(pathToFileURL(file).href); }
         catch { return new Response('Image unavailable', { status: 404 }); }
       }
-      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'virtual-list.js', 'queue-ui.js', 'queue.css','browser-ui.js','browser.css'].includes(name)) return new Response('Not found', { status: 404 });
+      if (!['index.html', 'style.css', 'renderer.js', 'library-ui.js', 'library.css', 'reader.js', 'reader.css', 'reader-images.js', 'anime4k-worker.js', 'vendor/Anime4K_Upscale_CNN_x2_S.glsl', 'virtual-list.js', 'queue-ui.js', 'queue.css','browser-ui.js','browser.css'].includes(name)) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(path.join(__dirname, 'ui', name)).href);
     });
   }

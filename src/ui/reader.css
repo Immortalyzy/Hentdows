@@ -20,6 +20,7 @@ dialog.reader #library-dialog-close:after{content:'×';font-size:22px}
 .reader-stage.zoom-animate .reader-spread{transition:width .15s,height .15s}.page-animate .reader-sheet{animation:reader-in .12s ease-out}@keyframes reader-in{from{transform:translateX(3px)}to{transform:translateX(0)}}
 .reader-spread.reader-pending{position:absolute;top:0;left:0;visibility:hidden;pointer-events:none}.reader-load-status{position:absolute;left:50%;top:12px;transform:translateX(-50%);max-width:90%;padding:8px 12px;background:#282222e8;color:#eee;border-radius:6px;font-size:12px;z-index:2}.reader-load-status button{margin-left:10px;padding:5px 8px;font-size:12px}
 .reader-error{align-self:center}.reader-stage.zoomed{cursor:grab}
+.reader-scaling-status{width:100%;font-size:12px;color:#cdbcbc}
 .book-language{font-size:10px;color:#bba}.book-bottom .book-details{font-size:20px}.book-bottom .book-rating{font-size:11px;margin-left:0}.book-bottom>span{font-size:10px}
 .auto-grid{grid-template-columns:repeat(auto-fit,minmax(min(var(--card-width),100%),1fr))}
 #library-top{position:sticky;bottom:8px;float:right;z-index:2;margin:8px}

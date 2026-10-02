@@ -31,6 +31,8 @@ const VIEWER_SETTINGS=[
   {key:'color',group:'Color filter',title:'Color filter',type:'color',default:'#ffffff'},
   number('colorOpacity','Color filter','Filter opacity (%)',0,0,100),
   bool('smartCrop','Rendering','Smart cropping',false,'Automatically remove solid borders. Original files are preserved.'),
+  select('upscale','Rendering','Anime4K upscaling',2,[[0,'Off'],[2,'2× (fast)'],[4,'4× (two passes)']],'Shows the original first, then enhances pages smaller than 2048 pixels on the longest side. The GPU model stays loaded while the app runs. Originals remain unchanged.'),
+  select('preloadPages','Rendering','Preload next pages',3,[[0,'Off'],[2,'2 pages'],[3,'3 pages']],'Loads originals and prepares upscaled pages ahead of you, within a bounded memory cache.'),
   select('fit','Horizontal reader','Display mode','fit',[['fit','Fit to screen'],['fill','Fill screen (proportionate)'],['stretch','Fill screen (stretch)']]),
   bool('keepZoom','Horizontal reader','Maintain zoom level between pages',false),bool('twoPages','Horizontal reader','Two pages (book) mode',false),
   select('gap','Vertical reader','Separating bars',0,[[0,'Off'],[8,'Small'],[20,'Medium'],[40,'Large']]),
