@@ -14,6 +14,7 @@
     "benchmark:library": "node scripts/library-benchmark.cjs",
     "package": "electron-packager . Hentdows --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/(Hentoid|test|docs|scripts|artifacts|dist|\\.npm-cache|\\.git)(/|$)\"",
     "smoke:reader": "electron scripts/reader-smoke.cjs",
+    "smoke:reader-transitions": "electron scripts/reader-transition-smoke.cjs",
     "smoke:queue": "electron scripts/queue-smoke.cjs",
     "smoke:browser": "electron scripts/browser-smoke.cjs",
     "smoke:import": "electron scripts/import-smoke.cjs"

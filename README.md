@@ -172,6 +172,9 @@ reading, read/completion thresholds, deletion direction, and slideshow speed/loo
 The narrow bottom bar provides page/book navigation, gallery, slideshow, and more
 actions. In vertical mode the wheel scrolls naturally; in paged mode one wheel
 step turns a page. Zoomed pages scroll/pan before returning to normal page turns.
+Paged reading keeps the previous image visible until the next page has loaded
+and decoded. Two-page spreads change together. Failed page loads retain the
+previous image and offer Retry; rapid navigation cannot display a stale page.
 
 Windows uses the agreed configurable keyboard equivalents for Android volume
 buttons, the full window area, and Chromium's native renderer/color depth.
@@ -190,6 +193,7 @@ npm run smoke:browser
 npm run smoke:library
 npm run smoke:import
 npm run smoke:reader
+npm run smoke:reader-transitions
 npm run benchmark:library
 npm run package
 ```

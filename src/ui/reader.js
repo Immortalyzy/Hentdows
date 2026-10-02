@@ -48,16 +48,21 @@
     const ctx=canvas.getContext('2d');ctx.translate(canvas.width/2,canvas.height/2);if(rotate)ctx.rotate(p.rotate==='left'?-Math.PI/2:Math.PI/2);ctx.drawImage(image,x,y,w,h,-w*scale/2,-h*scale/2,w*scale,h*scale);
     canvas.className=image.className;canvas.setAttribute('aria-label',image.alt);return canvas;
   }
-  function pageImage(s,page,host,visible=true){
+  function pageImage(s,page,host,visible=true,recordOnLoad=true){
     const image=element('img',null,'reader-image');image.alt=`Page ${page+1}`;host.append(image);
-    image.onload=()=>{
-      if(session!==s||!host.isConnected)return;
-      const display=processed(image,host);if(display!==image)image.replaceWith(display);
-      if(prefs().direction==='vertical'&&!s.gallery)host.style.aspectRatio=`${display===image?image.naturalWidth:display.width} / ${display===image?image.naturalHeight:display.height}`;
-      host.dataset.loaded='true';if(visible)run(()=>record(s,page));else visiblePage(s);
-    };
-    image.onerror=()=>{if(host.isConnected){host.replaceChildren(element('p',`Page ${page+1} is unavailable. Check the book folder.`, 'reader-error'));host.dataset.loaded='error';}};
-    image.src=url(s.book.id,page);return image;
+    return new Promise(resolve=>{
+      const active=()=>session===s&&host.isConnected&&image.parentNode===host;
+      const failed=()=>{if(active()){host.replaceChildren(element('p',`Page ${page+1} is unavailable. Check the book folder.`, 'reader-error'));host.dataset.loaded='error';}resolve(false);};
+      image.onload=async()=>{
+        try{
+          await image.decode();if(!active()){resolve(false);return;}
+          const display=processed(image,host);if(display!==image)image.replaceWith(display);
+          if(prefs().direction==='vertical'&&!s.gallery)host.style.aspectRatio=`${display===image?image.naturalWidth:display.width} / ${display===image?image.naturalHeight:display.height}`;
+          host.dataset.loaded='true';if(recordOnLoad){if(visible)run(()=>record(s,page));else visiblePage(s);}resolve(true);
+        }catch{failed();}
+      };
+      image.onerror=failed;image.src=url(s.book.id,page);
+    });
   }
   function badge(){if(!session)return;const b=body.querySelector('.reader-page-number');if(b)b.textContent=`${session.page+1} / ${session.book.files.length}`;const n=body.querySelector('.reader-page-input');if(n&&document.activeElement!==n)n.value=session.page+1;}
   function visiblePage(s){
@@ -68,7 +73,9 @@
     }
   }
   function draw(){
-    const s=session;if(!s)return;dispose();body.replaceChildren();dialog.classList.remove('reader-controls-hidden');
+    const s=session;if(!s)return;dispose();const drawId=s.drawId=(s.drawId||0)+1;
+    const previous=!s.gallery&&prefs().direction!=='vertical'?body.querySelector('.reader-spread:not(.reader-pending)'):null;
+    body.replaceChildren();dialog.classList.remove('reader-controls-hidden');s.loading=false;
     const p=prefs();const stage=element('div',null,'reader-stage');stage.tabIndex=0;stage.setAttribute('aria-label',s.book.title);
     stage.classList.toggle('vertical',p.direction==='vertical'&&!s.gallery);stage.classList.toggle('page-animate',p.pageAnimation);
     stage.classList.toggle('zoom-animate',p.zoomAnimation);stage.dataset.fit=p.fit;stage.style.setProperty('--page-gap',p.gap+'px');
@@ -85,9 +92,23 @@
       stage.append(fragment);stage.onscroll=()=>visiblePage(s);
       requestAnimationFrame(()=>{if(session===s)stage.children[s.page]?.scrollIntoView({block:'start'});});
     }else{
-      const spread=element('div',null,'reader-spread');spread.classList.toggle('rtl',p.direction==='rtl');stage.append(spread);
-      for(let page=s.page;page<Math.min(s.book.files.length,s.page+(p.twoPages?2:1));page++){const host=element('div',null,'reader-sheet');pageImage(s,page,host);spread.append(host);}
-      zoom(s.zoom);
+      const spread=element('div',null,'reader-spread reader-pending');spread.classList.toggle('rtl',p.direction==='rtl');
+      if(previous)stage.append(previous);stage.append(spread);s.loading=true;stage.setAttribute('aria-busy','true');
+      spread.style.width=`${s.zoom*100}%`;spread.style.height=`${s.zoom*100}%`;
+      const status=element('div','Loading page…','reader-load-status');status.setAttribute('role','status');stage.append(status);
+      const pages=[],loads=[];
+      for(let page=s.page;page<Math.min(s.book.files.length,s.page+(p.twoPages?2:1));page++){const host=element('div',null,'reader-sheet');spread.append(host);pages.push(page);loads.push(pageImage(s,page,host,true,false));}
+      Promise.all(loads).then(loaded=>{
+        if(session!==s||s.drawId!==drawId||!stage.isConnected)return;
+        s.loading=false;stage.removeAttribute('aria-busy');
+        if(loaded.every(Boolean)){
+          previous?.remove();status.remove();spread.classList.remove('reader-pending');zoom(s.zoom);
+          for(const page of pages)run(()=>record(s,page));
+        }else{
+          if(previous)spread.remove();else spread.classList.remove('reader-pending');
+          status.replaceChildren(element('span','Page unavailable. Check the book folder.'),button('Retry',draw));
+        }
+      });
     }
     controls(s);badge();
     if(!s.gallery)gestures(stage,s);
@@ -194,7 +215,7 @@
       if(prefs().direction==='vertical'){
         const stage=body.querySelector('.reader-stage');stage.scrollTop+=prefs().slideSpeed*elapsed/1000;
         if(stage.scrollTop+stage.clientHeight<stage.scrollHeight-2)return;
-      }else if(now<next)return;
+      }else if(s.loading){next=now+prefs().slideDelay;return;}else if(now<next)return;
       next=now+prefs().slideDelay;busy=true;run(()=>step(1)).finally(()=>busy=false);
     },40);
   }
