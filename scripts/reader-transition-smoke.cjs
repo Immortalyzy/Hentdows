@@ -32,6 +32,7 @@ app.whenReady().then(async()=>{
   await open();await until(async()=>await ready()&&(await visible())[0]==='Page 1','first page');
   await js('window.oldImage=document.querySelector(".reader-spread:not(.reader-pending) .reader-image");void 0');
   const second=hold(1);await click('[aria-label="Next page"]');await until(()=>second.requested,'delayed request');
+  assert.equal(await js('document.querySelector(".reader-load-status")===null'),true,'normal page loading has no indicator');
   assert.equal(await js('oldImage.isConnected&&getComputedStyle(oldImage).visibility==="visible"'),true);assert.deepEqual(await visible(),['Page 1']);
   // Also delay decode, after the network response has completed.
   await js('window.originalDecode=HTMLImageElement.prototype.decode;HTMLImageElement.prototype.decode=async function(){await originalDecode.call(this);if(this.src.endsWith("/1")){window.waitingForDecode=true;await new Promise(resolve=>window.releaseDecode=resolve);}};void 0');
@@ -45,5 +46,10 @@ app.whenReady().then(async()=>{
   await click('#library-dialog-close');id=(await library.call('query',{query:'Synthetic spread book'})).books[0].id;await js('hentdows.savePreferences("viewer",{twoPages:true})');await open();await until(async()=>await ready()&&(await visible()).length===2,'first spread');
   const left=hold(2),right=hold(3);await click('[aria-label="Next page"]');await until(()=>left.requested&&right.requested,'both spread requests');left.release();await delay(100);assert.deepEqual(await visible(),['Page 1','Page 2']);right.release();await until(async()=>await ready()&&(await visible())[0]==='Page 3','complete spread');assert.deepEqual(await visible(),['Page 3','Page 4']);
   const closeLeft=hold(4),closeRight=hold(5);await click('[aria-label="Next page"]');await until(()=>closeLeft.requested&&closeRight.requested,'closing requests');await click('#library-dialog-close');closeLeft.release();closeRight.release();await delay(120);assert.equal(await js('document.querySelector("#library-dialog").open'),false);assert.equal(await js('document.querySelector(".reader-stage")===null'),true);
+  await js('hentdows.savePreferences("viewer",{zoomAnimation:false})');await open();await until(ready,'zoom fixture');
+  await js('[...document.querySelectorAll(".reader-extra button")].find(b=>b.textContent==="Zoom +").click()');
+  await until(()=>js('document.querySelector(".reader-stage").scrollWidth>document.querySelector(".reader-stage").clientWidth'),'zoom overflow');
+  assert.equal(await js('(()=>{const stage=document.querySelector(".reader-stage");stage.scrollLeft=40;stage.scrollTop=40;return stage.scrollLeft>0&&stage.scrollTop>0;})()'),true,'zoomed pages still pan');
+  await click('#library-dialog-close');
   console.log('Reader transition smoke passed: '+root);win.close();app.quit();
 }).catch(async error=>{console.error(error);for(const gate of gates.values())gate.release();if(instance)fs.writeFileSync(path.join(root,'failure.png'),(await instance.win.webContents.capturePage()).toPNG());app.exit(1);});

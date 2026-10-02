@@ -181,6 +181,9 @@ step turns a page. Zoomed pages scroll/pan before returning to normal page turns
 Paged reading keeps the previous image visible until the next page has loaded
 and decoded. Two-page spreads change together. Failed page loads retain the
 previous image and offer Retry; rapid navigation cannot display a stale page.
+Normal loading is silent. Page animation is clipped to the spread, preventing
+temporary bottom scrollbars from resizing the image during a page turn or upscale.
+Zoomed pages and vertical reading remain scrollable.
 
 Anime4K upscaling is enabled at **2×** by default. The original appears first,
 then the enhanced page replaces it. The GPU model stays loaded while the app is
@@ -212,6 +215,7 @@ npm run smoke:network
 npm run smoke:queue
 npm run smoke:browser
 npm run smoke:library
+npm run smoke:delete-books
 npm run smoke:import
 npm run smoke:reader
 npm run smoke:reader-transitions
@@ -238,7 +242,7 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.0/Hentdows-win32-x64/`, including smooth reader transitions,
+under `dist/0.9.1/Hentdows-win32-x64/`, including smooth reader transitions,
 the View source action, and persistent Anime4K upscaling with page preloading.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)

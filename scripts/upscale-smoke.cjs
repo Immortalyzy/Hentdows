@@ -36,13 +36,16 @@ app.whenReady().then(async()=>{
   const id=(await library.call('query',{})).books[0].id;
   const reads=new Map(),originalCall=library.call.bind(library);
   library.call=(method,input)=>{if(method==='asset'&&input.id===id)reads.set(input.page,(reads.get(input.page)||0)+1);return originalCall(method,input);};
-  await js(`window.originalPaints=0;window.enhancedPaints=0;window.tracking=true;
-    function track(){if(!tracking)return;const image=document.querySelector('.reader-spread:not(.reader-pending) .reader-image');if(image){if(image.dataset.upscaled)enhancedPaints++;else originalPaints++;}requestAnimationFrame(track);}requestAnimationFrame(track);
+  await js(`window.originalPaints=0;window.enhancedPaints=0;window.tracking=true;window.readerFrames=[];
+    function track(){if(!tracking)return;const image=document.querySelector('.reader-spread:not(.reader-pending) .reader-image'),stage=document.querySelector('.reader-stage');if(image){if(image.dataset.upscaled)enhancedPaints++;else originalPaints++;const r=image.getBoundingClientRect();readerFrames.push({w:stage.clientWidth,h:stage.clientHeight,sw:stage.scrollWidth,sh:stage.scrollHeight,top:r.top,left:r.left,iw:r.width,ih:r.height,upscaled:!!image.dataset.upscaled});}requestAnimationFrame(track);}requestAnimationFrame(track);
     readerUI.open(${id},0,{},()=>document.getElementById('library-dialog-close').click())`);
   await until(()=>js(`!!document.querySelector('[data-upscaled="2"]')`),'2x replacement');
   assert.ok(await js('originalPaints')>0,'original received a paint before enhancement');
   await until(()=>js('readerImages.status.enhanced.filter(x=>x.width===2560).length===4'),'three lookahead pages');
   const first=await js('readerImages.status');console.log('2x:',first);
+  const frames=await js('readerFrames');console.log('Reader image area:',[...new Set(frames.map(f=>`${f.w}x${f.h}`))]);
+  assert.ok(frames.every(f=>f.sw<=f.w&&f.sh<=f.h),'unzoomed page must not produce transient scrollbars');
+  assert.equal(new Set(frames.map(f=>`${f.w}:${f.h}:${f.top}:${f.iw}:${f.ih}`)).size,1,'image loading and upscaling must keep reader geometry stable');
   assert.equal((await library.call('get',id)).pageState.some(p=>p.page>0&&p.read),false,'prefetch does not mark pages read');
   const color=await js(`(()=>{const c=document.querySelector('[data-upscaled]'),ctx=c.getContext('2d');return {top:[...ctx.getImageData(40,40,1,1).data],bottom:[...ctx.getImageData(40,c.height-40,1,1).data],width:c.width,height:c.height};})()`);
   assert.deepEqual([color.width,color.height],[2560,3620]);assert.ok(color.top[0]>color.top[2]+100,'top stays red');assert.ok(color.bottom[2]>color.bottom[0]+100,'bottom stays blue');
@@ -61,6 +64,9 @@ app.whenReady().then(async()=>{
   await until(()=>js('!readerImages.status.running && readerImages.status.enhanced.length===4'),'bounded 4x lookahead');
   const four=await js('readerImages.status');console.log('4x:',four);assert.ok(four.enhancedBytes<=512*1024**2);assert.ok(four.originalBytes<=64*1024**2);
   assert.deepEqual([four.enhanced[0].width,four.enhanced[0].height],[5120,7240]);
+  const pageFrames=await js('readerFrames');
+  assert.ok(pageFrames.every(f=>f.sw<=f.w&&f.sh<=f.h),'page changes and 4x swaps must not create scrollbars');
+  assert.equal(new Set(pageFrames.map(f=>`${f.w}:${f.h}:${f.top}:${f.iw}:${f.ih}`)).size,1,'page changes retain the same image area');
   await js('readerUI.close();void 0');
   await js('hentdows.savePreferences("viewer",{upscale:2,direction:"vertical"})');
   await js(`readerUI.open(${id},0,{},()=>document.getElementById('library-dialog-close').click())`);

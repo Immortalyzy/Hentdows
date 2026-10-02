@@ -120,19 +120,19 @@
       const spread=element('div',null,'reader-spread reader-pending');spread.classList.toggle('rtl',p.direction==='rtl');
       if(previous)stage.append(previous);stage.append(spread);s.loading=true;stage.setAttribute('aria-busy','true');
       spread.style.width=`${s.zoom*100}%`;spread.style.height=`${s.zoom*100}%`;
-      const status=element('div','Loading page…','reader-load-status');status.setAttribute('role','status');stage.append(status);
       const pages=[],loads=[];
       for(let page=s.page;page<Math.min(s.book.files.length,s.page+(p.twoPages?2:1));page++){const host=element('div',null,'reader-sheet');spread.append(host);pages.push(page);loads.push(pageImage(s,page,host,true,false));}
       Promise.all(loads).then(loaded=>{
         if(session!==s||s.drawId!==drawId||!stage.isConnected)return;
         s.loading=false;stage.removeAttribute('aria-busy');
         if(loaded.every(Boolean)){
-          previous?.remove();status.remove();spread.classList.remove('reader-pending');zoom(s.zoom);
+          previous?.remove();spread.classList.remove('reader-pending');zoom(s.zoom);
           for(const page of pages)run(()=>record(s,page));
           pages.forEach((page,i)=>enhance(s,page,spread.children[i]));
         }else{
           if(previous)spread.remove();else spread.classList.remove('reader-pending');
-          status.replaceChildren(element('span','Page unavailable. Check the book folder.'),button('Retry',draw));
+          const status=element('div',null,'reader-load-status');status.setAttribute('role','status');
+          status.append(element('span','Page unavailable. Check the book folder.'),button('Retry',draw));stage.append(status);
         }
       });
     }
