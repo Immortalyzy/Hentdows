@@ -1,6 +1,6 @@
 {
   "name": "hentdows",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
   "license": "Apache-2.0",
@@ -20,6 +20,7 @@
     "smoke:book-source": "electron scripts/book-source-smoke.cjs",
     "smoke:queue": "electron scripts/queue-smoke.cjs",
     "smoke:browser": "electron scripts/browser-smoke.cjs",
+    "smoke:browser-tags": "electron scripts/browser-tag-actions-smoke.cjs",
     "smoke:import": "electron scripts/import-smoke.cjs"
   },
   "engines": {

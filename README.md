@@ -30,6 +30,8 @@ Electron supplies Chromium; no separate Chrome installation is needed.
 - Browser preferences include per-source resume, reopen last page, quick download,
   picture saving, page markers, Hitomi language filtering, light mode, DNS/proxy,
   and confirmed cookie/cache clearing. See [browser/storage notes](docs/vibe_steps/01_browersing/04_browser_storage.md).
+  Quick download leaves gallery-page controls such as tag voting and Show Tagged
+  Galleries to the site's own click handlers.
 - Multiple storage locations with a default for new downloads, offline status,
   free space, and path reconnection that preserves reading metadata. Manage them
   from Sources, Settings or the Library menu. Existing jobs keep their destination.
@@ -214,6 +216,7 @@ npm run smoke
 npm run smoke:network
 npm run smoke:queue
 npm run smoke:browser
+npm run smoke:browser-tags
 npm run smoke:library
 npm run smoke:delete-books
 npm run smoke:import
@@ -242,7 +245,7 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.1/Hentdows-win32-x64/`, including smooth reader transitions,
+under `dist/0.9.2/Hentdows-win32-x64/`, including smooth reader transitions,
 the View source action, and persistent Anime4K upscaling with page preloading.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)

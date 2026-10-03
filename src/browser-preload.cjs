@@ -4,8 +4,15 @@ const { ipcRenderer } = require('electron');
 function galleryLink(target) {
   const link = target.closest?.('a[href]');
   if (!link) return null;
+  // ExHentai's tag menu uses href="#" with native click handlers for votes
+  // and searches. The resolved href looks like the current gallery URL, but
+  // it is a page control, not a gallery link for quick download or markers.
+  const href = link.getAttribute('href')?.trim();
+  if (!href || href.startsWith('#') || href.startsWith('?')) return null;
   try {
     const u = new URL(link.href);
+    const current = new URL(location.href);
+    if (u.username || u.password || u.port || (u.origin === current.origin && u.pathname === current.pathname)) return null;
     const eh = ['e-hentai.org', 'exhentai.org'].includes(u.hostname) && /^\/g\/\d+\/[\w-]+\/?$/.test(u.pathname);
     const hitomi = u.hostname === 'hitomi.la' && (/^\/(galleries|reader)\/\d+\.html$/.test(u.pathname)
       || /^\/(manga|doujinshi|gamecg|cg|imageset|anime)\/[^/]+-\d+\.html$/.test(u.pathname));
