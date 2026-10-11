@@ -1,6 +1,6 @@
 {
   "name": "hentdows",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
   "license": "Apache-2.0",
@@ -17,6 +17,7 @@
     "smoke:reader": "electron scripts/reader-smoke.cjs",
     "smoke:reader-transitions": "electron scripts/reader-transition-smoke.cjs",
     "smoke:upscale": "electron scripts/upscale-smoke.cjs",
+    "smoke:animated-webp": "electron scripts/animated-webp-smoke.cjs",
     "smoke:book-source": "electron scripts/book-source-smoke.cjs",
     "smoke:queue": "electron scripts/queue-smoke.cjs",
     "smoke:browser": "electron scripts/browser-smoke.cjs",

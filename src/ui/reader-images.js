@@ -1,9 +1,21 @@
 // Bounded, session-only caches. No generated images are written to disk.
 (() => {
   const originals = new Map(), enhanced = new Map(), listeners = new Map();
+  const animations = new Map();
   const originalLimit = 64 * 1024 ** 2, enhancedLimit = 512 * 1024 ** 2;
   let wanted = [], scale = 0, running = null, serial = 0, worker, ready = false, unavailable = '', device = '';
   const key = url => `${scale}:${url}`;
+  function isAnimated(url) {
+    if (animations.has(url)) return animations.get(url);
+    // Share the tiny header request between the visible reader and lookahead.
+    // If detection fails, retain the native image rather than risk freezing it.
+    const promise = fetch(`${url}?animation=1`, {signal: AbortSignal.timeout(5000)})
+      .then(response => {if (!response.ok) throw new Error('Image metadata unavailable'); return response.json();})
+      .then(info => info.animated !== false).catch(() => true);
+    animations.set(url, promise);
+    if (animations.size > 128) animations.delete(animations.keys().next().value);
+    return promise;
+  }
   function notify(k, value) { for (const done of listeners.get(k) || []) done(value); listeners.delete(k); }
   function trim(map, limit) {
     let bytes = [...map.values()].reduce((sum, v) => sum + (v.bytes || 0), 0);
@@ -56,8 +68,9 @@
     if (!url) return;
     const job = running = {id: ++serial, key: key(url), url, scale};
     try {
-      const image = await original(url);
+      const [image, animated] = await Promise.all([original(url), isAnimated(url)]);
       if (!image || !wanted.includes(url) || key(url) !== job.key) throw new Error('Page no longer needed');
+      if (animated) throw new Error('Original retained: animated image');
       const w = image.naturalWidth, h = image.naturalHeight;
       if (Math.max(w, h) >= 2048 || w * h * scale * scale > 40e6) throw new Error('Original retained: page exceeds scaling limit');
       const bitmap = await createImageBitmap(image);
@@ -87,7 +100,8 @@
   }
   window.readerImages = {
     plan,
-    clear: () => plan([], 0),
+    isAnimated,
+    clear: () => {plan([], 0); animations.clear();},
     get(url) {
       if (!scale || unavailable || !wanted.includes(url)) return Promise.resolve(null);
       const k = key(url);

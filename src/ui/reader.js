@@ -11,7 +11,7 @@
   }
   function enhance(s,page,host){
     const original=host._original,display=host.firstElementChild,factor=prefs().upscale;
-    if(!original||!factor||display?.dataset.upscaled===String(factor))return;
+    if(!original||original.dataset.animated==='true'||!factor||display?.dataset.upscaled===String(factor))return;
     // Two animation frames ensure a paint with the original, including cache hits.
     requestAnimationFrame(()=>requestAnimationFrame(async()=>{
       const active=()=>session===s&&host.isConnected&&host.firstElementChild===display&&prefs().upscale===factor;
@@ -51,6 +51,9 @@
   // Image processing is display-only. Analyze a small bitmap, then crop/rotate
   // into a bounded canvas; the download on disk is never changed.
   function processed(image,stage,reference=image){
+    // Canvas processing captures one frame; leave animations in Chromium's
+    // native image renderer, including when crop/rotation preferences are on.
+    if(reference.dataset.animated==='true')return image;
     const p=prefs(),rotate=p.rotate!=='off'&&((image.naturalWidth>image.naturalHeight)!==(stage.clientWidth>stage.clientHeight));
     if(!p.smartCrop&&!rotate)return image;
     let x=0,y=0,w=image.naturalWidth,h=image.naturalHeight;
@@ -75,12 +78,14 @@
   }
   function pageImage(s,page,host,visible=true,recordOnLoad=true){
     const image=element('img',null,'reader-image');image.alt=`Page ${page+1}`;host.append(image);
+    const animation=readerImages.isAnimated(url(s.book.id,page));
     return new Promise(resolve=>{
       const active=()=>session===s&&host.isConnected&&image.parentNode===host;
       const failed=()=>{if(active()){host.replaceChildren(element('p',`Page ${page+1} is unavailable. Check the book folder.`, 'reader-error'));host.dataset.loaded='error';}resolve(false);};
       image.onload=async()=>{
         try{
-          await image.decode();if(!active()){resolve(false);return;}
+          const [,animated]=await Promise.all([image.decode(),animation]);if(!active()){resolve(false);return;}
+          image.dataset.animated=String(animated);
           const display=processed(image,host);if(display!==image)image.replaceWith(display);
           if(prefs().direction==='vertical'&&!s.gallery)host.style.aspectRatio=`${display===image?image.naturalWidth:display.width} / ${display===image?image.naturalHeight:display.height}`;
           host._original=image;host.dataset.loaded='true';if(recordOnLoad){if(visible)run(()=>record(s,page));else visiblePage(s);enhance(s,page,host);}resolve(true);

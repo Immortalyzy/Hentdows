@@ -198,6 +198,12 @@ ahead of time. Viewer → Rendering offers Off / 2× / 4× and 0 / 2 / 3-page pr
 or more, or outputs above 40 megapixels, remain original. A missing or lost GPU
 also leaves originals available.
 
+Animated WebP pages play natively, including imported files without an extension.
+They preload normally but automatically bypass 2×/4× upscaling, smart crop and
+auto-rotation: those canvas operations would freeze playback into a still frame.
+Fit, zoom and color filters remain available. Still WebP pages keep all existing
+enhancements, and the GPU model stays ready for the next still page.
+
 The session cache allows 64 MiB for decoded originals and 512 MiB for enhanced
 pages; distant lookahead is reduced when necessary, especially at 4×. Current
 display canvases and GPU working textures use additional memory. Page caches
@@ -227,6 +233,7 @@ npm run smoke:reader
 npm run smoke:reader-transitions
 npm run smoke:book-source
 npm run smoke:upscale # Requires a hardware GPU; generated fixtures only
+npm run smoke:animated-webp # Verifies native playback and automatic upscaling bypass
 npm run benchmark:library
 npm run package
 ```
@@ -248,8 +255,9 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.3/Hentdows-win32-x64/`, including smooth reader transitions,
-the View source action, and persistent Anime4K upscaling with page preloading.
+under `dist/0.9.4/Hentdows-win32-x64/`, including animated WebP playback, smooth
+reader transitions, the View source action, and persistent Anime4K upscaling
+with page preloading.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)
