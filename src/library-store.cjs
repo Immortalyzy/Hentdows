@@ -23,7 +23,7 @@ function criteria(input = {}) {
   if (!input || typeof input !== 'object') throw new Error('Invalid library query.');
   return { query: String(input.query || '').slice(0, 500), sort: Object.hasOwn(SORTS, input.sort) ? input.sort : 'downloaded', desc: input.desc !== false,
     offset: integer(input.offset, 0, 10000000, 0), limit: integer(input.limit, 1, 200, 60), favourite: [-1,0,1].includes(input.favourite) ? input.favourite : -1,
-    completed: [-1,0,1].includes(input.completed) ? input.completed : -1, rating: integer(input.rating, -1, 5, -1), pageFavourite: input.pageFavourite === true,
+    completed: [-1,0,1].includes(input.completed) ? input.completed : -1, rating: integer(input.rating, -1, 5, -1), ratingAtLeast: input.ratingAtLeast === true, pageFavourite: input.pageFavourite === true,
     combination: input.combination === 'or' ? 'or' : 'and', group: integer(input.group, 0, 1e9, 0), ungrouped: input.ungrouped === true,
     root: integer(input.root, 0, 1e9, 0), missing: input.missing === true,
     day: /^\d{4}-\d{2}-\d{2}$/.test(input.day || '') ? input.day : '',
@@ -142,7 +142,8 @@ class LibraryStore {
       const tags=parts.map(t=>contains('attrs',t));
       terms.push(`(${title} OR b.source_id=? ${tags.length ? `OR (${tags.join(' AND ')})` : ''})`);
     }
-    for (const key of ['favourite','completed','rating']) if (f[key] >= 0) add(`b.${key}=?`,f[key]);
+    for (const key of ['favourite','completed']) if (f[key] >= 0) add(`b.${key}=?`,f[key]);
+    if (f.rating >= 0) add(`b.rating${f.ratingAtLeast?'>=':'='}?`,f.rating);
     if (f.pageFavourite) add('EXISTS(SELECT 1 FROM page_state p WHERE p.book=b.id AND p.favourite=1)');
     if (f.missing) add('b.missing=1');
     if (f.root) add('b.root=?',f.root);

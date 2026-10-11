@@ -20,6 +20,9 @@ Electron supplies Chromium; no separate Chrome installation is needed.
 
 - Rate library books from 0–5 stars using the card's star button, book details,
   or selection actions. Clear resets a rating to zero.
+  In Sort & filter, select a rating and check **At least this many stars (inclusive)**
+  to include that rating and higher ratings. Unchecked matches the exact rating;
+  Any rating ignores the threshold. This option is also saved in dynamic groups.
 - Right-click a library book for the selection actions, with Delete first.
   Right-clicking inside a selection acts on all selected books; outside it selects
   only the clicked book. Delete asks once, then uses the Recycle Bin when possible
@@ -245,7 +248,7 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.2/Hentdows-win32-x64/`, including smooth reader transitions,
+under `dist/0.9.3/Hentdows-win32-x64/`, including smooth reader transitions,
 the View source action, and persistent Anime4K upscaling with page preloading.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)

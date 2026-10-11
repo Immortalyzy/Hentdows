@@ -1,6 +1,6 @@
 (() => {
   const call=(action,input)=>api.library(action,input), dialog=$('library-dialog'), body=$('library-dialog-content');
-  const defaults={query:'',sort:'downloaded',desc:true,offset:0,limit:60,favourite:-1,completed:-1,rating:-1,attrs:[],excludedTypes:[],combination:'and',group:0,root:0,day:'',ungrouped:false};
+  const defaults={query:'',sort:'downloaded',desc:true,offset:0,limit:60,favourite:-1,completed:-1,rating:-1,ratingAtLeast:false,attrs:[],excludedTypes:[],combination:'and',group:0,root:0,day:'',ungrouped:false};
   let filters={...defaults},view='list',grouping='flat',groupLabel='',groupSort='title',groupDesc=false,selected=new Set(),result,revision=-1,generation=0,active=false,groups=[],reader=null,searchTimer;
   try { const saved=JSON.parse(localStorage.getItem('library-view')||'{}');filters={...defaults,...saved.filters,offset:0};view=saved.view||'list'; }catch{}
   const prefs=()=>current.librarySettings;
@@ -124,7 +124,8 @@
     const canOrder=groups.some(g=>g.id===draft.group&&!g.filters)||(!draft.group&&draft.attrs.some(a=>!a.excluded&&['artist','series'].includes(a.kind)));
     body.append(selectControl('Sort by',sorts.filter(([key])=>key!=='custom'||canOrder),draft.sort,v=>draft.sort=v),selectControl('Direction',[['desc','Descending'],['asc','Ascending']],draft.desc?'desc':'asc',v=>draft.desc=v==='desc'));
     const row=element('div',null,'filter-row');row.append(selectControl('Favourites',[[-1,'All'],[1,'Favourites'],[0,'Non-favourites']],draft.favourite,v=>draft.favourite=Number(v)),selectControl('Completion',[[-1,'All'],[1,'Completed'],[0,'Not completed']],draft.completed,v=>draft.completed=Number(v)));body.append(row);
-    body.append(selectControl('Rating',[[-1,'Any rating'],[0,'Unrated'],...Array.from({length:5},(_,i)=>[i+1,'★'.repeat(i+1)])],draft.rating,v=>draft.rating=Number(v)));
+    const minimumLabel=element('label','At least this many stars (inclusive)','check'),minimum=element('input');minimum.type='checkbox';minimum.id='library-rating-at-least';minimum.checked=!!draft.ratingAtLeast;minimum.disabled=draft.rating<0;minimum.onchange=()=>draft.ratingAtLeast=minimum.checked;minimumLabel.prepend(minimum);
+    const ratingControl=selectControl('Rating',[[-1,'Any rating'],[0,'0 stars (unrated)'],...Array.from({length:5},(_,i)=>[i+1,'★'.repeat(i+1)])],draft.rating,v=>{draft.rating=Number(v);minimum.disabled=draft.rating<0;});ratingControl.querySelector('select').id='library-rating';body.append(ratingControl,minimumLabel);
     for(const [key,text] of [['pageFavourite','With favourite pages'],['missing','Missing files only']]){const label=element('label',text,'check'),check=element('input');check.type='checkbox';check.checked=!!draft[key];check.onchange=()=>draft[key]=check.checked;label.prepend(check);body.append(label);}
     body.append(element('h3','Advanced search'),selectControl('Combine selected attributes',[['and','AND · all conditions'],['or','OR · any condition']],draft.combination,v=>draft.combination=v));
     const chips=element('div');body.append(chips);

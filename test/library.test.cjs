@@ -34,6 +34,25 @@ test('advanced search implements AND/OR exclusions, missing attribute types and 
   assert.deepEqual(search({attrs:[{kind:'artist',name:'a',excluded:true}]}),[b,c]);
   assert.deepEqual(search({excludedTypes:['artist']}),[b]);assert.deepEqual(search({rating:4}),[a]);assert.deepEqual(search({favourite:0,completed:0}),[b,c]);
 });
+test('minimum star filter includes the threshold and survives dynamic groups and reader navigation',t=>{
+  const {store,root}=fixture(t),ids=[];
+  for(let rating=0;rating<=5;rating++){const id=store.index(book(root,rating+1));store.update({ids:[id],patch:{rating,favourite:rating===5}});ids.push(id);}
+  const filters={rating:3,ratingAtLeast:true,sort:'downloaded',desc:false};
+  assert.deepEqual(store.query(filters).books.map(b=>b.rating),[3,4,5]);
+  assert.deepEqual(store.query({...filters,ratingAtLeast:false}).books.map(b=>b.rating),[3]);
+  assert.deepEqual(store.query({rating:3}).books.map(b=>b.rating),[3]);
+  assert.deepEqual(store.query({...filters,ratingAtLeast:'true'}).books.map(b=>b.rating),[3]);
+  assert.equal(store.query({...filters,rating:0}).total,6);
+  assert.equal(store.query({...filters,rating:5}).total,1);
+  assert.equal(store.query({...filters,rating:-1}).total,6);
+  assert.deepEqual(store.query({...filters,favourite:1}).books.map(b=>b.rating),[5]);
+  assert.deepEqual(store.query({...filters,offset:1,limit:1}).books.map(b=>b.rating),[4]);
+  assert.equal(store.adjacent({id:ids[3],filters,direction:1}),ids[4]);
+  const group=store.group({action:'save',name:'Three stars and up',filters});
+  assert.equal(store.query({group}).total,3);
+  store.update({ids:[ids[2]],patch:{rating:3}});assert.equal(store.query({group}).total,4);
+});
+
 test('all book sorts are paged deterministically; custom order, stable shuffle and dynamic groups work',t=>{
   const {store,root}=fixture(t),ids=[];
   for(let i=1;i<=5;i++)ids.push(store.index(book(root,i,{title:`Title ${6-i}`,tags:[`artist:${6-i}`],pages:i,size:i*i*100})));
