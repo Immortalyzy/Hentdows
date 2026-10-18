@@ -167,6 +167,7 @@ class LibraryStore {
     return { sql:terms.join(' AND ') || '1',args,f };
   }
   adjacent({id,filters,direction=1}) { return this.query(filters,{id,direction}); }
+  position({id,filters}) { return this.query(filters,{id,position:true}); }
   query(input,adjacent) {
     const {sql,args,f}=this.where(input), direction=f.desc ? 'DESC' : 'ASC';
     const attr=f.attrs.find(a=>!a.excluded&&['artist','series'].includes(a.kind)),orderArgs=[];
@@ -178,6 +179,10 @@ class LibraryStore {
     }
     const tie=f.sort === 'reads' ? `,b.last_read ${direction},b.downloaded DESC` : '';
     if(adjacent) {
+      if(adjacent.position){
+        if(!Number.isInteger(adjacent.id))throw new Error('Invalid book.');
+        return this.sql(`WITH ordered AS (SELECT b.id,row_number() OVER (ORDER BY ${order} ${direction}${tie},b.id ASC)-1 position FROM books b WHERE ${sql}) SELECT position FROM ordered WHERE id=?`).get(...orderArgs,...args,adjacent.id)?.position ?? null;
+      }
       if(!Number.isInteger(adjacent.id)||![1,-1].includes(adjacent.direction))throw new Error('Invalid navigation.');
       return this.sql(`WITH ordered AS (SELECT b.id,row_number() OVER (ORDER BY ${order} ${direction}${tie},b.id ASC) position FROM books b WHERE ${sql}) SELECT id FROM ordered WHERE position=(SELECT position FROM ordered WHERE id=?)+?`).get(...orderArgs,...args,adjacent.id,adjacent.direction)?.id || null;
     }

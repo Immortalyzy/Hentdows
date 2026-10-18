@@ -86,7 +86,7 @@ const methods={
     store.relocateRoot(id,real);return real;
   },
   duplicateCandidates:input=>store.duplicateCandidates(input),adjacent:input=>store.adjacent(input),query:input=>store.query(input),get:id=>store.get(id),suggestions:input=>store.suggestions(input),roots:()=>store.roots(),groups:()=>store.groups(),
-  facets:input=>store.facets(input),findSource:input=>store.findSource(input),indexed:paths=>store.indexed(paths),
+  position:input=>store.position(input),facets:input=>store.facets(input),findSource:input=>store.findSource(input),indexed:paths=>store.indexed(paths),
   update:input=>store.update(input),group:input=>store.group(input),read:input=>store.read(input),detach:ids=>store.detach(ids),shuffle:()=>store.shuffle(),
   restoreDetached:()=>store.restoreDetached(),scan,cancel:()=>{cancelScan=true;},
   addRoot:directory=>{

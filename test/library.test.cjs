@@ -103,10 +103,13 @@ test('reader adjacency follows every sort and filtered custom order across page 
   const filters={attrs:[{kind:'artist',name:'shared'}]};store.group({action:'move',ids:[ids[1]],direction:-1,filters});
   for(const sort of Object.keys(SORTS))for(const desc of [true,false]){
     const f={...filters,sort,desc,limit:100},all=store.query(f).books;
+    for(const at of [0,19,59,79])assert.equal(store.position({id:all[at].id,filters:f}),at,sort+' position');
     for(const at of [0,19,59,78])assert.equal(store.adjacent({id:all[at].id,filters:f,direction:1}),all[at+1].id,sort);
     assert.equal(store.adjacent({id:all.at(-1).id,filters:f,direction:1}),null);
     assert.equal(store.adjacent({id:all[1].id,filters:f,direction:-1}),all[0].id);
   }
   assert.equal(store.facets({kind:'artist'}).entries[0].size,16000);
+  assert.equal(store.position({id:ids[0],filters:{query:'nonexistent'}}),null);
+  assert.equal(store.position({id:999999,filters:{}}),null);
   assert.deepEqual(store.suggestions({kind:'language',sort:'title'}).map(a=>a.name),['english','japanese']);
 });

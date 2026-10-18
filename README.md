@@ -18,6 +18,12 @@ Electron supplies Chromium; no separate Chrome installation is needed.
 
 ## First feature slice
 
+- Navigate library books with the arrow keys (up/down follows grid rows).
+  Enter opens the focused book; Esc returns focus to the original book, even
+  across pages, endless scrolling, or changes to reading-based sort order.
+  Delete targets the focused book. Enter confirms the deletion dialog; Esc
+  cancels it. After deletion, focus moves to the next book (or the previous
+  book at the end). Search fields and other controls keep their normal keys.
 - Rate library books from 0–5 stars using the card's star button, book details,
   or selection actions. Clear resets a rating to zero.
   In Sort & filter, select a rating and check **At least this many stars (inclusive)**
@@ -227,6 +233,7 @@ npm run smoke:queue
 npm run smoke:browser
 npm run smoke:browser-tags
 npm run smoke:library
+npm run smoke:library-keyboard
 npm run smoke:delete-books
 npm run smoke:import
 npm run smoke:reader
@@ -255,7 +262,8 @@ Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 directory. It is an unsigned portable build, not an installer.
 Close a running older copy before launching an updated build; both use the same
 saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.4/Hentdows-win32-x64/`, including animated WebP playback, smooth
+under `dist/0.9.5/Hentdows-win32-x64/`, including keyboard library navigation,
+animated WebP playback, smooth
 reader transitions, the View source action, and persistent Anime4K upscaling
 with page preloading.
 

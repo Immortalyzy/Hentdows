@@ -5,9 +5,53 @@
   try { const saved=JSON.parse(localStorage.getItem('library-view')||'{}');filters={...defaults,...saved.filters,offset:0};view=saved.view||'list'; }catch{}
   const prefs=()=>current.librarySettings;
   const virtual=new VirtualLibrary($('library-books'),document.querySelector('main'),()=>{if(active&&!dialog.open)run(load);});
-  const resetScroll=()=>{document.querySelector('main').scrollTop=0;filters.offset=0;};
+  const resetScroll=()=>{document.querySelector('main').scrollTop=0;filters.offset=0;focusedIndex=0;focusRequest=null;};
   let settingsSignature='',virtualRange;
   let bookClickTimer,contextTarget;
+  let focusedIndex=0,focusRequest=null,readerOrigin=null,keyBusy=false;
+  function restoreFocus(){
+    if(!focusRequest||dialog.open||!active)return;
+    if(!result?.books.length)return;
+    const request=focusRequest;focusRequest=null;
+    const books=[...$('library-books').querySelectorAll('.book')];
+    const row=request.id!==null?books.find(b=>Number(b.dataset.id)===request.id):books[Math.max(0,Math.min(books.length-1,request.index-result.offset))];
+    if(row){focusedIndex=Number(row.dataset.index);row.focus({preventScroll:true});if(request.reveal)row.scrollIntoView({block:'nearest',inline:'nearest'});}
+  }
+  async function focusIndex(index){
+    if(!result?.total)return;
+    index=Math.max(0,Math.min(result.total-1,index));focusRequest={id:null,index,reveal:true};
+    if(index>=result.offset&&index<result.offset+result.books.length){restoreFocus();return;}
+    if(prefs().endless){
+      const scroll=document.querySelector('main'),r=virtual.range(),top=$('library-books').getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop;
+      scroll.scrollTop=top+Math.floor(index/r.columns)*r.rowHeight;
+    }else filters.offset=Math.floor(index/prefs().pageSize)*prefs().pageSize;
+    await load();
+  }
+  document.addEventListener('keydown',event=>{
+    if(!active||dialog.open||!contextMenu.hidden||grouping!=='flat'&&!groupLabel||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return;
+    if(event.target.isContentEditable||event.target.closest('input,textarea,select,button,a'))return;
+    if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter','Delete'].includes(event.key)||!result?.books.length)return;
+    event.preventDefault();clearTimeout(bookClickTimer);if(keyBusy||event.repeat&&['Enter','Delete'].includes(event.key))return;
+    const row=event.target.closest('.book');
+    const index=row?result.offset+result.books.findIndex(b=>b.id===Number(row.dataset.id)):Math.max(result.offset,focusedIndex);
+    keyBusy=true;run(async()=>{
+      try{
+        if(event.key.startsWith('Arrow')){
+          const columns=virtual.range().columns,delta={ArrowLeft:-1,ArrowRight:1,ArrowUp:-columns,ArrowDown:columns}[event.key];
+          await focusIndex(row?index+delta:index);
+        }else{
+          if(!row){await focusIndex(index);return;}
+          const id=Number(row.dataset.id);
+          if(event.key==='Enter')await startReader(id);
+          else{
+            focusRequest={id:null,index,reveal:true};
+            // Delete targets the keyboard-focused book, independent of a bulk selection.
+            try{if(await call('delete',[id]))selected.delete(id);}finally{await load();}
+          }
+        }
+      }finally{keyBusy=false;}
+    });
+  });
   const contextMenu=element('div',null,'book-context-menu');contextMenu.id='book-context-menu';contextMenu.hidden=true;contextMenu.setAttribute('role','menu');contextMenu.setAttribute('aria-label','Selected book actions');document.body.append(contextMenu);
   function closeContext(focus=false){if(contextMenu.hidden)return;contextMenu.hidden=true;if(focus&&contextTarget?.isConnected)contextTarget.focus();}
   function showContext(event,book,row){
@@ -36,7 +80,13 @@
   }
   function inputControl(label,value,onchange,type='text') {const row=element('label',label),input=element('input');input.type=type;input.value=value;input.oninput=()=>onchange(input.value);row.append(input);return row;}
   function openDialog(title) {closeContext();window.readerUI?.close();reader=null;dialog.classList.remove('reader');body.replaceChildren(element('h2',title));if(!dialog.open)dialog.showModal();}
-  function closeDialog() {window.readerUI?.close();reader=null;dialog.close();if(active)run(load);}
+  function closeDialog() {
+    const origin=readerOrigin;readerOrigin=null;window.readerUI?.close();reader=null;dialog.close();
+    if(active)run(async()=>{
+      if(origin){const index=await call('position',{id:origin.id,filters});await load();await focusIndex(index??origin.index);}
+      else await load();
+    });
+  }
   $('library-dialog-close').onclick=closeDialog;
   dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
   function selection() {$('library-selection').hidden=!selected.size;$('library-selected').textContent=`${selected.size} selected`;for(const el of $('library-books').querySelectorAll('.book'))el.classList.toggle('selected',selected.has(Number(el.dataset.id)));$('library-action').querySelector('[value="edit"]').disabled=selected.size!==1;$('library-action').querySelector('[value="source"]').disabled=selected.size!==1||!result?.books.find(b=>selected.has(b.id))?.sourceUrl;}
@@ -63,6 +113,7 @@
     if(grouping!=='flat'&&!groupLabel) {await loadGroups(stamp);return;}
     const data=await call('query',filters);if(stamp!==generation)return;result=data;
     if(data.offset>=data.total&&data.offset>0){if(prefs().endless){resetScroll();return load();}filters.offset=Math.max(0,Math.ceil(data.total/data.limit)-1)*data.limit;return load();}
+    if(document.activeElement?.matches('.book')&&!focusRequest)focusRequest={id:Number(document.activeElement.dataset.id),index:Number(document.activeElement.dataset.index),reveal:false};
     $('library-books').className=view==='list'?'':`grid ${view==='grid'?'auto-grid':view}`;$('library-books').replaceChildren();
     $('library-total').textContent=`${groupLabel?groupLabel+' · ':''}${data.total.toLocaleString()} books · ${bytes(data.bytes)}${!filters.root?' · All locations':''}`;
     $('library-up').hidden=!groupLabel;$('library-prev').disabled=!data.offset;$('library-next').disabled=data.offset+data.limit>=data.total;
@@ -70,6 +121,8 @@
     if(!data.books.length){const empty=element('div',null,'library-empty');empty.append(element('h2','No books to display'),element('p',filters.query||filters.attrs.length?'Try clearing the search or filters.':'Completed downloads appear here automatically. Add a Hentdows folder or import a Hentoid .Hentoid folder.'),button('Add library location',()=>call('import')),button('Import Hentoid folder',()=>call('importHentoid')));$('library-books').append(empty);}
     for(const book of data.books){
       const row=element('article',null,'book');row.dataset.id=book.id;row.tabIndex=0;row.setAttribute('aria-label',book.title);
+      row.dataset.index=data.offset+data.books.indexOf(book);
+      row.onfocus=()=>{focusedIndex=Number(row.dataset.index);};
       const img=element('img',null,'book-cover');img.src=cover(book.id);img.alt='';img.loading='lazy';img.onerror=()=>{img.removeAttribute('src');img.alt='Cover unavailable';};
       const info=element('div',null,'book-info');info.append(element('h3',book.title),element('div',book.author||'Unknown artist','book-author'),element('div',`${source(book.site)} · ${book.pages} pages · ${bytes(book.size)}`,'book-meta'),element('div',book.tags.join(' · '),'book-tags'));
       const progress=element('progress');progress.max=1;progress.value=book.progress;progress.title=`${Math.round(book.progress*100)}% read`;info.append(progress);
@@ -88,10 +141,10 @@
       row.onclick=event=>{if(event.target.closest('button'))return;if(selected.size){toggle(book.id);return;}clearTimeout(bookClickTimer);bookClickTimer=setTimeout(()=>run(()=>startReader(book.id)),400);};
       row.ondblclick=event=>{if(event.target.closest('button'))return;clearTimeout(bookClickTimer);selected.add(book.id);selection();};
       row.oncontextmenu=event=>showContext(event,book,row);
-      row.onkeydown=event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){showContext(event,book,row);return;}if(event.target.closest('button'))return;if(event.key==='Enter')run(()=>startReader(book.id));if(event.key===' '){event.preventDefault();toggle(book.id);}};
+      row.onkeydown=event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){showContext(event,book,row);return;}if(event.target.closest('button'))return;if(event.key===' '){event.preventDefault();toggle(book.id);}};
       $('library-books').append(row);
     }
-    virtual.decorate(data.total,data.books.length,virtualRange);selection();
+    virtual.decorate(data.total,data.books.length,virtualRange);selection();restoreFocus();
   }
   async function loadGroups(stamp) {
     const data=await call('facets',{kind:grouping,query:filters.query,offset:filters.offset,limit:filters.limit,sort:groupSort,desc:groupDesc});
@@ -114,6 +167,7 @@
   }
   async function editBook(id){const book=await call('get',id);openDialog('Edit metadata');let title=book.title,tags=book.tags.join('\n');body.append(inputControl('Title',title,v=>title=v));const label=element('label','Tags · one per line (for example artist:name)'),input=element('textarea');input.value=tags;input.oninput=()=>tags=input.value;label.append(input);body.append(label,button('Save',async()=>{await call('update',{ids:[id],patch:{title,tags:tags.split('\n').map(t=>t.trim()).filter(Boolean)}});closeDialog();}));}
   async function startReader(id,page){
+    clearTimeout(bookClickTimer);readerOrigin={id,index:Math.max(0,(result?.offset||0)+(result?.books.findIndex(b=>b.id===id)??0))};
     reader=true;
     await window.readerUI.open(id,page,structuredClone(filters),()=>{reader=null;closeDialog();});
   }
@@ -191,6 +245,7 @@
       $('library-view').value=view;resetScroll();
     }
     const entering=!active&&state.panel==='library';active=state.panel==='library';
+    if(entering)focusRequest={id:null,index:focusedIndex,reveal:false};
     if(!active){closeContext();clearTimeout(bookClickTimer);}
     $('library-refresh').disabled=state.libraryScan.running;$('library-cancel-scan').hidden=!state.libraryScan.running;
     const scan=state.libraryScan;$('library-scan').hidden=!scan.running&&!scan.errors?.length;

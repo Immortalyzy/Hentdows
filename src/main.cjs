@@ -321,7 +321,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
       if (!result.canceled) { settings.downloadRoot = result.filePaths[0]; writeJson(settingsFile, settings); await library.call('addRoot', settings.downloadRoot); publish(); }
     },
     'app:library': async (_, action, input) => {
-      if (['query','get','suggestions','groups','roots','facets','adjacent'].includes(action)) return library.call(action, input);
+      if (['query','get','suggestions','groups','roots','facets','adjacent','position'].includes(action)) return library.call(action, input);
       if (['update','group','read','shuffle','restoreDetached'].includes(action)) { const result = await library.call(action, input); libraryChanged(); return result; }
       if (action === 'scan' || action === 'cancel') return library.call(action);
       if (action === 'import'||action==='importHentoid') return attachLibraryFolder(action==='importHentoid');
@@ -340,7 +340,7 @@ async function createApplication({ show = true, offscreen = false, dataPath = ap
         const books = await Promise.all(input.map(id => library.call('get', id)));
         const message = action === 'delete' ? `Delete ${books.length} book folder(s)?` : `Remove ${books.length} book(s) from the library? Files will be kept.`;
         const detail = action === 'delete' ? 'Use the Recycle Bin when possible. If this fails (for example on a USB or network drive), the book folders and their contents will be permanently deleted. Permanent deletion cannot be undone.' : '';
-        const result = await dialog.showMessageBox(win, { type: 'warning', title: 'Library', message, detail, buttons: ['Cancel', action === 'delete' ? 'Delete books' : 'Remove from library'], defaultId: 0, cancelId: 0 });
+        const result = await dialog.showMessageBox(win, { type: 'warning', title: 'Library', message, detail, buttons: ['Cancel', action === 'delete' ? 'Delete books' : 'Remove from library'], defaultId: action === 'delete' ? 1 : 0, cancelId: 0 });
         if (result.response !== 1) return false;
         try { for (const book of books) {
           if (action === 'delete') {
