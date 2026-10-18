@@ -3,3 +3,56 @@ dist/
 artifacts/
 .npm-cache/
 *.log
+
+# Local credentials and environment configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+
+# Application state, library metadata and exports (including nested copies)
+settings.json
+queue.json
+browser.json
+cover-hashes.json
+content.json
+contentv2.json
+contentV2.json
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+hentdows-bookmarks*.json
+Hentdows-library*
+*.part
+
+# Local profiles, downloaded books and Chromium session stores
+profiles/
+userData/
+sessionData/
+downloads/
+backups/
+.Hentoid/
+Partitions/
+Network/
+Cookies
+Cookies-journal
+Login Data
+Login Data-journal
+Local State
+Preferences
+Secure Preferences
+History
+History-journal
+Local Storage/
+Session Storage/
+IndexedDB/
+Cache/
+Code Cache/
+GPUCache/
+Crashpad/
