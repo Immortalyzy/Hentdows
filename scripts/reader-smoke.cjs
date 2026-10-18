@@ -24,7 +24,7 @@ app.whenReady().then(async()=>{
   await instance.libraryReady;await until(()=>js('document.querySelectorAll(".book").length>0'),'library');
   const initial=await js('document.querySelector(".book").dataset.id');
   await js('document.querySelector("main").scrollTop=20000');await until(()=>js('document.querySelector(".book").dataset.id').then(id=>id!==initial),'virtual range moved');
-  assert.ok(await js('document.querySelectorAll(".book").length<=200'));await delay(150);assert.ok(await js('document.querySelector("main").scrollTop>19000'));
+  assert.ok(await js('document.querySelectorAll(".book").length<=200'));await delay(150);assert.ok(await js('Math.abs(document.querySelector("main").scrollTop-20000)<2'));
   await js('document.querySelector("main").scrollTop=1000');await until(()=>js('document.querySelector(".book").dataset.id').then(id=>id===initial),'virtual scroll back');
   await click('#library-top');await until(()=>js('document.querySelector("main").scrollTop===0'),'top');
   await setting('library',{endless:false,pageSize:20,display:'grid',gridTitle:false,gridRating:false});

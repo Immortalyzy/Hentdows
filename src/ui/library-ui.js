@@ -114,6 +114,7 @@
     const data=await call('query',filters);if(stamp!==generation)return;result=data;
     if(data.offset>=data.total&&data.offset>0){if(prefs().endless){resetScroll();return load();}filters.offset=Math.max(0,Math.ceil(data.total/data.limit)-1)*data.limit;return load();}
     if(document.activeElement?.matches('.book')&&!focusRequest)focusRequest={id:Number(document.activeElement.dataset.id),index:Number(document.activeElement.dataset.index),reveal:false};
+    const scroll=document.querySelector('main'),scrollPosition=scroll.scrollTop;
     $('library-books').className=view==='list'?'':`grid ${view==='grid'?'auto-grid':view}`;$('library-books').replaceChildren();
     $('library-total').textContent=`${groupLabel?groupLabel+' · ':''}${data.total.toLocaleString()} books · ${bytes(data.bytes)}${!filters.root?' · All locations':''}`;
     $('library-up').hidden=!groupLabel;$('library-prev').disabled=!data.offset;$('library-next').disabled=data.offset+data.limit>=data.total;
@@ -144,7 +145,11 @@
       row.onkeydown=event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){showContext(event,book,row);return;}if(event.target.closest('button'))return;if(event.key===' '){event.preventDefault();toggle(book.id);}};
       $('library-books').append(row);
     }
-    virtual.decorate(data.total,data.books.length,virtualRange);selection();restoreFocus();
+    virtual.decorate(data.total,data.books.length,virtualRange);
+    // Replacing focused rows can move Chromium's scroll anchor. Preserve the
+    // viewport before applying an explicit keyboard/reader focus request.
+    if(prefs().endless)scroll.scrollTop=scrollPosition;
+    selection();restoreFocus();
   }
   async function loadGroups(stamp) {
     const data=await call('facets',{kind:grouping,query:filters.query,offset:filters.offset,limit:filters.limit,sort:groupSort,desc:groupDesc});
