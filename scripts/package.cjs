@@ -25,7 +25,7 @@ async function main() {
   execFileSync(process.execPath, [npm, 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
     { cwd: stage, stdio: 'inherit', windowsHide: true });
   const metadata = JSON.parse(fs.readFileSync(path.join(stage, 'package.json'), 'utf8'));
-  const { default: packager } = await import('@electron/packager');
+  const { packager } = await import('@electron/packager');
   const output = await packager({ dir: stage, name: 'Hentdows', platform: 'win32', arch: 'x64',
     electronVersion: metadata.devDependencies.electron, appVersion: metadata.version,
     out: path.join(root, 'dist', metadata.version), overwrite: false, asar: true, prune: false });
