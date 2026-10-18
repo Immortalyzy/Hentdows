@@ -1,6 +1,6 @@
 {
   "name": "hentdows",
-  "version": "0.9.5",
+  "version": "1.0.0",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
     "smoke:library-keyboard": "electron scripts/library-keyboard-smoke.cjs",
     "smoke:delete-books": "electron scripts/delete-book-smoke.cjs",
     "benchmark:library": "node scripts/library-benchmark.cjs",
-    "package": "electron-packager . Hentdows --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/(Hentoid|test|docs|scripts|artifacts|dist|\\.npm-cache|\\.git)(/|$)\"",
+    "package": "node scripts/package.cjs",
     "smoke:reader": "electron scripts/reader-smoke.cjs",
     "smoke:reader-transitions": "electron scripts/reader-transition-smoke.cjs",
     "smoke:upscale": "electron scripts/upscale-smoke.cjs",

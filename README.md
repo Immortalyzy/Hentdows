@@ -258,14 +258,17 @@ groups, image boundaries, reading state and narrow layouts. The benchmark create
 100,000 synthetic metadata records under `artifacts/` and reports timings; it
 does not scan or validate an actual 200–400 GiB image collection.
 
-Packaging produces `dist/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
-directory. It is an unsigned portable build, not an installer.
-Close a running older copy before launching an updated build; both use the same
-saved profile. The multiple-location and Hentoid import build is also available locally
-under `dist/0.9.5/Hentdows-win32-x64/`, including keyboard library navigation,
-animated WebP playback, smooth
-reader transitions, the View source action, and persistent Anime4K upscaling
-with page preloading.
+Packaging produces `dist/1.0.0/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
+folder or a ZIP of it. It is an unsigned portable build, not an installer.
+The build requires committed source and stages only committed `src/`, package
+metadata, LICENSE and NOTICE, then installs fresh production dependencies with
+install scripts disabled. Local profiles, books, exports, development documents
+and untracked files are not copied. Build provenance is saved in `build-info.json`.
+Build releases from a separate clean worktree with a fresh `npm ci` installation.
+
+The application still uses the current Windows user's saved profile when launched.
+Close a running older copy before launching an update. Development validation must
+use synthetic fixtures and isolated profiles as described in AGENTS.md.
 
 See [browser implementation notes](docs/vibe_steps/01_browersing/01_browsing_downloads.md)
 and [download settings notes](docs/vibe_steps/02_download/02_config_implementation.md)
