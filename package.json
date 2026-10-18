@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "A portrait-first Windows port of Hentoid",
+  "author": "Hentdows contributors",
   "license": "Apache-2.0",
   "main": "src/main.cjs",
   "scripts": {
