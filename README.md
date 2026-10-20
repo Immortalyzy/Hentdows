@@ -189,6 +189,9 @@ reading, read/completion thresholds, deletion direction, and slideshow speed/loo
 The narrow bottom bar provides page/book navigation, gallery, slideshow, and more
 actions. In vertical mode the wheel scrolls naturally; in paged mode one wheel
 step turns a page. Zoomed pages scroll/pan before returning to normal page turns.
+A reading progress slider sits above the controls without changing the image area.
+Click or drag it to jump to a page; arrow keys adjust it when focused. It follows
+page turns and vertical scrolling, and hides with the reader controls.
 Paged reading keeps the previous image visible until the next page has loaded
 and decoded. Two-page spreads change together. Failed page loads retain the
 previous image and offer Retry; rapid navigation cannot display a stale page.
@@ -258,7 +261,7 @@ groups, image boundaries, reading state and narrow layouts. The benchmark create
 100,000 synthetic metadata records under `artifacts/` and reports timings; it
 does not scan or validate an actual 200–400 GiB image collection.
 
-Packaging produces `dist/1.0.0/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
+Packaging produces `dist/1.0.1/Hentdows-win32-x64/Hentdows.exe`; distribute the whole
 folder or a ZIP of it. It is an unsigned portable build, not an installer.
 The build requires committed source and stages only committed `src/`, package
 metadata, LICENSE and NOTICE, then installs fresh production dependencies with

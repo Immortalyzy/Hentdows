@@ -22,6 +22,11 @@ dialog.reader #library-dialog-close:after{content:'×';font-size:22px}
 .reader-spread.reader-pending{position:absolute;top:0;left:0;visibility:hidden;pointer-events:none}.reader-load-status{position:absolute;left:50%;top:12px;transform:translateX(-50%);max-width:90%;padding:8px 12px;background:#282222e8;color:#eee;border-radius:6px;font-size:12px;z-index:2}.reader-load-status button{margin-left:10px;padding:5px 8px;font-size:12px}
 .reader-error{align-self:center}.reader-stage.zoomed{cursor:grab}
 .reader-scaling-status{width:100%;font-size:12px;color:#cdbcbc}
+.reader-controls .reader-progress{position:absolute;left:0;top:-14px;width:100%;height:14px;margin:0;padding:0 5px;border:0;border-radius:0;background:#251d1d;appearance:none;cursor:pointer;accent-color:var(--accent)}
+.reader-progress::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--reading-progress),#685050 var(--reading-progress))}
+.reader-progress::-webkit-slider-thumb{appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:var(--accent)}
+.reader-progress:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.reader-progress:disabled{cursor:default}
 .book-language{font-size:10px;color:#bba}.book-bottom .book-details{font-size:20px}.book-bottom .book-rating{font-size:11px;margin-left:0}.book-bottom>span{font-size:10px}
 .auto-grid{grid-template-columns:repeat(auto-fit,minmax(min(var(--card-width),100%),1fr))}
 #library-top{position:sticky;bottom:8px;float:right;z-index:2;margin:8px}

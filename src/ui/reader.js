@@ -94,7 +94,12 @@
       image.onerror=failed;image.src=url(s.book.id,page);
     });
   }
-  function badge(){if(!session)return;const b=body.querySelector('.reader-page-number');if(b)b.textContent=`${session.page+1} / ${session.book.files.length}`;const n=body.querySelector('.reader-page-input');if(n&&document.activeElement!==n)n.value=session.page+1;}
+  function progressValue(input,page,total){
+    input.value=page;input.style.setProperty('--reading-progress',`${page/total*100}%`);
+    input.setAttribute('aria-valuetext',`Page ${page} of ${total}`);
+    input.title=`Page ${page} of ${total} · Drag to jump`;
+  }
+  function badge(){if(!session)return;const b=body.querySelector('.reader-page-number');if(b)b.textContent=`${session.page+1} / ${session.book.files.length}`;const n=body.querySelector('.reader-page-input');if(n&&document.activeElement!==n)n.value=session.page+1;const progress=body.querySelector('.reader-progress');if(progress&&!progress.matches(':active'))progressValue(progress,session.page+1,session.book.files.length);}
   function visiblePage(s){
     if(session!==s||s.gallery||prefs().direction!=='vertical')return;
     const stage=body.querySelector('.reader-stage'),rect=stage.getBoundingClientRect(),point=rect.top+Math.min(rect.height/2,150);
@@ -146,6 +151,11 @@
   }
   function controls(s){
     const row=element('div',null,'reader-controls');
+    const progress=element('input',null,'reader-progress');progress.type='range';progress.min=1;progress.max=Math.max(2,s.book.files.length);progress.step=1;progress.disabled=s.book.files.length===1;progress.setAttribute('aria-label','Reading progress');
+    progressValue(progress,s.page+1,s.book.files.length);
+    progress.oninput=()=>{stopSlide();const play=row.querySelector('[aria-label="Slideshow"]');if(play)play.textContent='▶';progressValue(progress,Number(progress.value),s.book.files.length);};
+    progress.onchange=()=>{if(session!==s)return;stopSlide();go(Number(progress.value)-1);body.querySelector('.reader-progress')?.focus({preventScroll:true});};
+    row.append(progress);
     const action=(text,title,fn)=>{const b=button(text,fn);b.title=title;b.setAttribute('aria-label',title);row.append(b);return b;};
     action('⇤','Previous book',()=>switchBook(-1));
     action('←','Previous page',()=>step(-1));
